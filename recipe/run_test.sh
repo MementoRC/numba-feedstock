@@ -1,20 +1,31 @@
 #!/bin/bash
 
-set -e
+set -euxo pipefail
+IFS=$'\n\t'
 
 export NUMBA_DEVELOPER_MODE=1
 export NUMBA_DISABLE_ERROR_MESSAGE_HIGHLIGHTING=1
 export PYTHONFAULTHANDLER=1
 
 unamestr=`uname`
-if [[ "$unamestr" == 'Linux' ]]; then
-  SEGVCATCH=catchsegv
-  export CC="${CC} -pthread"
-elif [[ "$unamestr" == 'Darwin' ]]; then
-  SEGVCATCH=""
-else
-  echo Error
-fi
+case "$unamestr" in
+  Linux*)
+    SEGVCATCH=catchsegv
+    export CC="${CC} -pthread"
+    ;;
+  Darwin*)
+    SEGVCATCH=""
+    ;;
+  MINGW*|MSYS*|CYGWIN*|Windows*)
+    SEGVCATCH=""
+    export NUMBA_CPU_NAME=generic
+    export _NUMBA_REDUCED_TESTING=1
+    export PYTHONUTF8=1
+    ;;
+  *)
+    SEGVCATCH=""
+    ;;
+esac
 
 TEST_NPROCS=${CPU_COUNT}
 
@@ -44,19 +55,15 @@ if [[ "$NUMPY_DETECTS_AVX512_SKX_NP_GT_122" == "True" ]]; then
   export NPY_DISABLE_CPU_FEATURES="AVX512_SKX"
 fi
 
-
 if [[ "$build_platform" != "$target_platform" ]]; then
-  RANDOM="--random='0.15'"
   echo "Randomizing numba test suite on $archstr because $build_platform != $host_platform"
   echo "Running: $SEGVCATCH python -m numba.runtests -b --random='0.15' -m $TEST_NPROCS -- $TESTS_TO_RUN"
   $SEGVCATCH python -m numba.runtests -b --random='0.15' --exclude-tags='long_running' -m $TEST_NPROCS -- $TESTS_TO_RUN
-elif [[ "$target_platform" == "win-64" ]]; then
-  RANDOM=""
+elif [[ "$target_platform" == "win-"* ]]; then
   echo "Running half the tests except long_running on '$targt_platform'"
   echo "Running: $SEGVCATCH python -m numba.runtests -b --random='0.5' -m $TEST_NPROCS -- $TESTS_TO_RUN"
   $SEGVCATCH python -m numba.runtests -b --random='0.5' --exclude-tags='long_running' -m $TEST_NPROCS -- $TESTS_TO_RUN
 else
-  RANDOM=""
   echo "Running all the tests except long_running on '$targt_platform'"
   echo "Running: $SEGVCATCH python -m numba.runtests -b -m $TEST_NPROCS -- $TESTS_TO_RUN"
   $SEGVCATCH python -m numba.runtests -b --exclude-tags='long_running' -m $TEST_NPROCS -- $TESTS_TO_RUN
