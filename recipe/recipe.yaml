@@ -94,9 +94,8 @@ tests:
         - numba.tests
         - numba.tests.npyufunc
   - script:
-      - if: win
-        then: run_test.bat
-        else: run_test.sh
+      file: run_test.sh
+      interpreter: bash
     requirements:
       run:
         - pip
@@ -110,6 +109,9 @@ tests:
         - tbb
         - ${{ compiler('c') }}
         - ${{ compiler('cxx') }}
+        - if: not unix
+          then:
+            - m2-bash >=5.2
 
 about:
   license: BSD-2-Clause
