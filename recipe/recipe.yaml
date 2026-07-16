@@ -1,7 +1,9 @@
 context:
+  build_number: 1
   name: numba
-  version: 0.66.0rc2
-  sha256: 84b4f2864f298350b7f8681cbd2e0fae1ff10d03086c31c20a5fc20f30560ea8
+  version: 0.66.0
+  sha256: b900e63a0e26c05ea9a6d5a3a5a0a177cb64c5011887bf43edb8c3ed2c38d363
+  fast_tests: "1"
 
 package:
   name: numba
@@ -12,7 +14,7 @@ source:
   sha256: ${{ sha256 }}
 
 build:
-  number: 1
+  number: ${{ build_number }}
   skip: match(python, "<3.10")
   script:
     - if: linux
@@ -93,9 +95,24 @@ tests:
         - numba.testing
         - numba.tests
         - numba.tests.npyufunc
+      pip_check: true
+
   - script:
-      file: run_test.sh
-      interpreter: bash
+      - numba -h
+      - numba -s
+
+  - script:
+      content:
+        - ${{ "bash run_test.sh" if unix else "cmd /c run_test.bat" }}
+      env:
+        FAST_TESTS: ${{ "0" if build_number == 0 else fast_tests }}
+        build_platform: ${{ build_platform }}
+        target_platform: ${{ target_platform }}
+    files:
+      recipe:
+        # On non-unix, rattler-build (Issue 2657 upstream), fails to clean large testsuite
+        # Use multiple CI rerun or FAST_TEST: 1
+        - run_test.${{ "sh" if unix else "bat" }}
     requirements:
       run:
         - pip
@@ -109,9 +126,9 @@ tests:
         - tbb
         - ${{ compiler('c') }}
         - ${{ compiler('cxx') }}
-        - if: not unix
-          then:
-            - m2-bash >=5.2
+
+  - script:
+      - numba -h
 
 about:
   license: BSD-2-Clause
