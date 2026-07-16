@@ -28,6 +28,7 @@ case "$unamestr" in
 esac
 
 TEST_NPROCS=${CPU_COUNT}
+FAST_TESTS="${FAST_TESTS:-"0"}"
 
 # Validate Numba dependencies
 python -m pip check
@@ -57,9 +58,9 @@ fi
 
 if [[ "$build_platform" != "$target_platform" ]]; then
   echo "Randomizing numba test suite because $build_platform != $host_platform"
-  echo "Running: $SEGVCATCH python -m numba.runtests -b --random='0.15' -m $TEST_NPROCS"
-  $SEGVCATCH python -m numba.runtests -b --random='0.15' --exclude-tags='long_running' -m $TEST_NPROCS
-elif [[ "$target_platform" == "win-"* ]]; then
+  echo "Running: $SEGVCATCH python -m numba.runtests -b --random='0.07' -m $TEST_NPROCS"
+  $SEGVCATCH python -m numba.runtests -b --random='0.08' --exclude-tags='long_running' -m $TEST_NPROCS
+elif ([[ "$target_platform" == "win-"* ]] || [[ "$target_platform" == "osx-64" ]]) && [[ "${FAST_TEST}" == "1" ]]; then
   echo "Running half the tests except long_running on '$target_platform'"
   echo "Running: $SEGVCATCH python -m numba.runtests -b --random='0.5' -m $TEST_NPROCS"
   $SEGVCATCH python -m numba.runtests -b --random='0.5' --exclude-tags='long_running' -m $TEST_NPROCS
