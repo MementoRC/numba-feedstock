@@ -57,14 +57,14 @@ fi
 
 if [[ "$build_platform" != "$target_platform" ]]; then
   echo "Randomizing numba test suite because $build_platform != $host_platform"
-  echo "Running: $SEGVCATCH python -m numba.runtests -b --random='0.15' -m $TEST_NPROCS -- $TESTS_TO_RUN"
-  $SEGVCATCH python -m numba.runtests -b --random='0.15' --exclude-tags='long_running' -m $TEST_NPROCS -- $TESTS_TO_RUN
+  echo "Running: $SEGVCATCH python -m numba.runtests -b --random='0.15' -m $TEST_NPROCS"
+  $SEGVCATCH python -m numba.runtests -b --random='0.15' --exclude-tags='long_running' -m $TEST_NPROCS
 elif [[ "$target_platform" == "win-"* ]]; then
   echo "Running half the tests except long_running on '$target_platform'"
-  echo "Running: $SEGVCATCH python -m numba.runtests -b --random='0.5' -m $TEST_NPROCS -- $TESTS_TO_RUN"
-  $SEGVCATCH python -m numba.runtests -b --random='0.5' --exclude-tags='long_running' -m $TEST_NPROCS -- $TESTS_TO_RUN
+  echo "Running: $SEGVCATCH python -m numba.runtests -b --random='0.5' -m $TEST_NPROCS"
+  $SEGVCATCH python -m numba.runtests -b --random='0.5' --exclude-tags='long_running' -m $TEST_NPROCS
 else
   echo "Running all the tests except long_running on '$target_platform'"
-  echo "Running: $SEGVCATCH python -m numba.runtests -b -m $TEST_NPROCS -- $TESTS_TO_RUN"
-  $SEGVCATCH python -m numba.runtests -b --exclude-tags='long_running' -m $TEST_NPROCS -- $TESTS_TO_RUN
+  echo "Running: $SEGVCATCH python -m numba.runtests -b -m $TEST_NPROCS"
+  $SEGVCATCH python -m numba.runtests -b --exclude-tags='long_running' -m $TEST_NPROCS
 fi
