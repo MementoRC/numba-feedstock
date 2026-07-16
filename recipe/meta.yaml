@@ -1,5 +1,5 @@
 {% set name = "numba" %}
-{% set version = "0.65.1" %}
+{% set version = "0.66.0" %}
 
 package:
   name: numba
@@ -7,10 +7,10 @@ package:
 
 source:
   url: https://pypi.org/packages/source/{{ name[0] }}/{{ name }}/{{ name }}-{{ version }}.tar.gz
-  sha256: 19357146c32fe9ed25059ab915e8465fb13951cf6b0aace3826b76886373ab23
+  sha256: b900e63a0e26c05ea9a6d5a3a5a0a177cb64c5011887bf43edb8c3ed2c38d363
 
 build:
-  number: 1
+  number: 0
   entry_points:
     - numba = numba.misc.numba_entry:main
   script:
@@ -37,10 +37,10 @@ requirements:
     - python
     - pip
     - setuptools
-    - llvmlite 0.47.*
+    - llvmlite 0.48.*
     - llvm-openmp  # [osx]
     - libgomp      # [linux]
-    - numpy
+    - numpy >=1.24,<2.5
     - tbb-devel 2021.6.0
 
   run:
@@ -127,3 +127,4 @@ extra:
     - jakirkham
     - step21
     - esc
+    - MementoRC
