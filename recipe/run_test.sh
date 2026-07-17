@@ -76,17 +76,3 @@ else
   echo "Running: $SEGVCATCH python -m numba.runtests -b -m $TEST_NPROCS"
   $SEGVCATCH python -m numba.runtests -b --exclude-tags='long_running' -m $TEST_NPROCS
 fi
-
-# Windows: MSVC's mspdbsrv.exe lingers and blocks rattler-build's test-dir
-# cleanup (prefix-dev/rattler-build#2657). Kill it before we exit.
-case "$unamestr" in
-  MINGW*|MSYS*|CYGWIN*|Windows*)
-    win_reap() {
-      cmd //c "tasklist /v | findstr /i \"python mspdbsrv vctip\"" || true
-      for _p in python.exe mspdbsrv.exe vctip.exe; do
-        cmd //c "taskkill /F /T /IM $_p & exit 0"
-      done
-    }
-    trap win_reap EXIT
-    ;;
-esac
