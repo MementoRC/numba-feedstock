@@ -25,6 +25,9 @@ case "$unamestr" in
     export NUMBA_CPU_NAME=generic
     export _NUMBA_REDUCED_TESTING=1
     export PYTHONUTF8=1
+    _RUN_DIR="$(mktemp -d 2>/dev/null || echo "${TEMP:-/tmp}/numba_run.$$")"
+    mkdir -p "$_RUN_DIR"
+    cd "$_RUN_DIR"
     ;;
   *)
     SEGVCATCH=""
@@ -78,6 +81,12 @@ fi
 # cleanup (prefix-dev/rattler-build#2657). Kill it before we exit.
 case "$unamestr" in
   MINGW*|MSYS*|CYGWIN*|Windows*)
-    taskkill //F //IM mspdbsrv.exe 2>/dev/null || true
+    win_reap() {
+      cmd //c "tasklist /v | findstr /i \"python mspdbsrv vctip\"" || true
+      for _p in python.exe mspdbsrv.exe vctip.exe; do
+        cmd //c "taskkill /F /T /IM $_p & exit 0"
+      done
+    }
+    trap win_reap EXIT
     ;;
 esac
