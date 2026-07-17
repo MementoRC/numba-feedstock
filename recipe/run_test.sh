@@ -76,3 +76,18 @@ else
   echo "Running: $SEGVCATCH python -m numba.runtests -b -m $TEST_NPROCS"
   $SEGVCATCH python -m numba.runtests -b --exclude-tags='long_running' -m $TEST_NPROCS
 fi
+
+# Windows: numba runs worker python.exe from inside rattler-build's test prefix,
+# so a lingering worker keeps its executable/.pyd mapped and locks the test dir
+# -> rattler-build's post-test removal fails with "Access is denied (os error 5)".
+# Reap stragglers directly (NO `cmd` wrapper -- MSYS has no `cmd`, only cmd.exe),
+# then give Windows a moment to release the handles. Cleanup must never fail the
+# build, hence `|| true` on every line.
+case "$unamestr" in
+  MINGW*|MSYS*|CYGWIN*|Windows*)
+    taskkill //F //T //IM python.exe   >/dev/null 2>&1 || true
+    taskkill //F //T //IM mspdbsrv.exe >/dev/null 2>&1 || true
+    taskkill //F //T //IM vctip.exe    >/dev/null 2>&1 || true
+    sleep 5
+    ;;
+esac
