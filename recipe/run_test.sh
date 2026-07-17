@@ -10,7 +10,11 @@ export PYTHONFAULTHANDLER=1
 unamestr=`uname`
 case "$unamestr" in
   Linux*)
-    SEGVCATCH=catchsegv
+    if command -v catchsegv >/dev/null 2>&1; then
+      SEGVCATCH=catchsegv
+    else
+      SEGVCATCH=""
+    fi
     export CC="${CC} -pthread"
     ;;
   Darwin*)
@@ -60,7 +64,7 @@ if [[ "$build_platform" != "$target_platform" ]]; then
   echo "Randomizing numba test suite because $build_platform != $host_platform"
   echo "Running: $SEGVCATCH python -m numba.runtests -b --random='0.07' -m $TEST_NPROCS"
   $SEGVCATCH python -m numba.runtests -b --random='0.08' --exclude-tags='long_running' -m $TEST_NPROCS
-elif ([[ "$target_platform" == "win-"* ]] || [[ "$target_platform" == "osx-64" ]]) && [[ "${FAST_TEST}" == "1" ]]; then
+elif ([[ "$target_platform" == "win-"* ]] || [[ "$target_platform" == "osx-64" ]]) && [[ "${FAST_TESTS}" == "1" ]]; then
   echo "Running half the tests except long_running on '$target_platform'"
   echo "Running: $SEGVCATCH python -m numba.runtests -b --random='0.5' -m $TEST_NPROCS"
   $SEGVCATCH python -m numba.runtests -b --random='0.5' --exclude-tags='long_running' -m $TEST_NPROCS
