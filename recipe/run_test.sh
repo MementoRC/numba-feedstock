@@ -85,6 +85,7 @@ fi
 # build, hence `|| true` on every line.
 case "$unamestr" in
   MINGW*|MSYS*|CYGWIN*|Windows*)
+    powershell.exe -NoProfile -Command "Get-Process | Where-Object { \$_.Path -like 'D:\bld\*' } | ForEach-Object { Write-Host ('HOLDER ' + \$_.Id + ' ' + \$_.ProcessName + ' ' + \$_.Path); Stop-Process -Id \$_.Id -Force }" || true
     taskkill //F //T //IM python.exe   >/dev/null 2>&1 || true
     taskkill //F //T //IM mspdbsrv.exe >/dev/null 2>&1 || true
     taskkill //F //T //IM vctip.exe    >/dev/null 2>&1 || true
