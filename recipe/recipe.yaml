@@ -95,11 +95,17 @@ tests:
         - numba.testing
         - numba.tests
         - numba.tests.npyufunc
+      pip_check: true
+
+  - script:
+      - numba -h
+      - numba -s
+
   - script:
       env:
         FAST_TESTS: ${{ "0" if build_number == 0 else fast_tests }}
-      file: run_test.sh
-      interpreter: bash
+      file: run_test.py
+      interpreter: python
     requirements:
       run:
         - pip
