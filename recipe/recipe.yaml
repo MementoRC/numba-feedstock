@@ -102,10 +102,11 @@ tests:
       - numba -s
 
   - script:
+      file: ${{ "run_test.sh" if unix else "run_test.bat" }}
       env:
         FAST_TESTS: ${{ "0" if build_number == 0 else fast_tests }}
-      file: run_test.py
-      interpreter: python
+        build_platform: ${{ build_platform }}
+        target_platform: ${{ target_platform }}
     requirements:
       run:
         - pip
@@ -119,9 +120,6 @@ tests:
         - tbb
         - ${{ compiler('c') }}
         - ${{ compiler('cxx') }}
-        - if: not unix
-          then:
-            - m2-bash >=5.2
 
 about:
   license: BSD-2-Clause
