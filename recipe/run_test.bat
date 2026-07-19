@@ -13,7 +13,7 @@ python -m numba.tests.test_runtests
 if errorlevel 1 exit /b 1
 
 if "%FAST_TESTS%"=="1" (
-  python -m numba.runtests -b --random=0.1 --exclude-tags=long_running -m %CPU_COUNT%
+  python -m numba.runtests -b --random=0.25 --exclude-tags=long_running -m %CPU_COUNT%
 ) else (
   python -m numba.runtests -b --exclude-tags=long_running -m %CPU_COUNT%
 )
