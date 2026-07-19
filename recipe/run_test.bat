@@ -45,6 +45,6 @@ echo === HANDLE PROBE END ===
 @rem os-error-5 -- no file retrieval needed. taskkill/ping removed: proven useless (the probe named
 @rem no python.exe holder on failing jobs, and the 10s delay did not prevent the failure).
 cd /d C:\ 2>nul
-start "" /b powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Sleep -Seconds 3; $h = $env:TEMP + '\handle64.exe'; for ($i=0; $i -lt 12; $i++) { Write-Host ('DELAYED_PROBE i=' + $i); if (Test-Path $h) { & $h -accepteula -nobanner 'D:\bld\test' 2>&1 | Write-Host } else { Write-Host 'DELAYED_NO_HANDLE64' }; Start-Sleep -Milliseconds 1500 }"
+start "" /b powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Sleep -Seconds 3; $h = $env:TEMP + '\handle64.exe'; for ($i=0; $i -lt 28; $i++) { Write-Host ('DELAYED_PROBE i=' + $i); if (Test-Path $h) { & $h -accepteula -nobanner 'D:\bld\test' 2>&1 | Write-Host } else { Write-Host 'DELAYED_NO_HANDLE64' }; Start-Sleep -Milliseconds 1500 }"
 ping -n 2 127.0.0.1 >nul
 exit /b 0
