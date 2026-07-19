@@ -35,10 +35,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "try { [Net.ServicePointM
 if exist "%TEMP%\handle64.exe" ("%TEMP%\handle64.exe" -accepteula -nobanner "D:\bld\test" 2>&1) else (echo HANDLE64_MISSING)
 echo === HANDLE PROBE END ===
 
-@rem Windows: known rattler-build test-dir cleanup race (prefix-dev/rattler-build#2657) --
-@rem rattler removes the test dir right after this script and Windows may not have
-@rem released the test env's handles yet ("Access is denied", os error 5). Reap any
-@rem straggler and pause so the OS can release; reduces (does not eliminate) the flake.
-taskkill /F /T /IM python.exe >nul 2>&1
-ping -n 10 127.0.0.1 >nul
+@rem ===== DELAYED DETACHED PROBE (prefix-dev/rattler-build#2657) =====
+@rem The early probe above runs too soon: on FAILING jobs it comes back clean because the handle
+@rem that blocks removal only appears at/after rattler-build's delete syscall -- which happens AFTER
+@rem this script exits. So: (1) cd OUT of the test dir so cmd.exe stops holding it as CWD (also a
+@rem control: if the job still fails, cmd's CWD was never the cause); (2) launch a DETACHED powershell
+@rem that outlives our exit, sleeps past it, then loops handle64 over the test dir. It inherits
+@rem rattler-build's still-open stdout pipe, so its output lands in the CI log right around the
+@rem os-error-5 -- no file retrieval needed. taskkill/ping removed: proven useless (the probe named
+@rem no python.exe holder on failing jobs, and the 10s delay did not prevent the failure).
+cd /d C:\ 2>nul
+start "" /b powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Sleep -Seconds 3; $h = $env:TEMP + '\handle64.exe'; for ($i=0; $i -lt 12; $i++) { Write-Host ('DELAYED_PROBE i=' + $i); if (Test-Path $h) { & $h -accepteula -nobanner 'D:\bld\test' 2>&1 | Write-Host } else { Write-Host 'DELAYED_NO_HANDLE64' }; Start-Sleep -Milliseconds 1500 }"
+ping -n 2 127.0.0.1 >nul
 exit /b 0
