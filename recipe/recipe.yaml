@@ -102,11 +102,15 @@ tests:
       - numba -s
 
   - script:
-      file: ${{ "run_test.sh" if unix else "run_test.bat" }}
+      content:
+        - ${{ "bash run_test.sh" if unix else "cmd /c run_test.bat" }}
       env:
         FAST_TESTS: ${{ "0" if build_number == 0 else fast_tests }}
         build_platform: ${{ build_platform }}
         target_platform: ${{ target_platform }}
+    files:
+      recipe:
+        - run_test.${{ "sh" if unix else "bat" }}
     requirements:
       run:
         - pip
@@ -120,6 +124,9 @@ tests:
         - tbb
         - ${{ compiler('c') }}
         - ${{ compiler('cxx') }}
+
+  - script:
+      - numba -h
 
 about:
   license: BSD-2-Clause
