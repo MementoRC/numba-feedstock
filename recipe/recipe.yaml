@@ -110,6 +110,8 @@ tests:
         target_platform: ${{ target_platform }}
     files:
       recipe:
+        # On non-unix, rattler-build (Issue 2657 upstream), fails to clean large testsuite
+        # Use multiple CI rerun or FAST_TEST: 1
         - run_test.${{ "sh" if unix else "bat" }}
     requirements:
       run:
