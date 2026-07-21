@@ -48,7 +48,7 @@ requirements:
     - setuptools
     - llvmlite 0.48.*
     - numpy >=1.24,<2.5
-    - tbb-devel 2021.6.0.*
+    - tbb-devel
   run:
     - python
     - ${{ pin_compatible('llvmlite', upper_bound='x.x') }}
