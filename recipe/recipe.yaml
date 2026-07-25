@@ -1,9 +1,9 @@
 context:
-  build_number: 1
+  build_number: 0
   name: numba
-  version: 0.66.0rc2
-  sha256: 84b4f2864f298350b7f8681cbd2e0fae1ff10d03086c31c20a5fc20f30560ea8
-  fast_tests: "1"
+  version: 0.67.0rc1
+  sha256: 36d3f50cbb992a4c40a53f070eb04ae774d8be5c0c733994307f65e134112e3e
+  fast_tests: "0"
 
 package:
   name: numba
