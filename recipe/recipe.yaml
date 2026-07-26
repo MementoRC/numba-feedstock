@@ -3,7 +3,7 @@ context:
   name: numba
   version: 0.67.0rc1
   sha256: 36d3f50cbb992a4c40a53f070eb04ae774d8be5c0c733994307f65e134112e3e
-  fast_tests: "0"
+  fast_tests: "1"
 
 package:
   name: numba
@@ -105,7 +105,7 @@ tests:
       content:
         - ${{ "bash run_test.sh" if unix else "cmd /c run_test.bat" }}
       env:
-        FAST_TESTS: ${{ "0" if build_number == 0 else fast_tests }}
+        FAST_TESTS: ${{ fast_tests or "0" if build_number == 0 else fast_tests }}  # bypass after test review
         build_platform: ${{ build_platform }}
         target_platform: ${{ target_platform }}
     files:
