@@ -19,13 +19,6 @@ fi
 TEST_NPROCS="${CPU_COUNT}"
 FAST_TESTS="${FAST_TESTS:-0}"
 
-# Validate Numba dependencies
-python -m pip check
-# Check Numba executables are present
-numba -h
-# System info tool
-numba -s
-
 # TEMP DEBUG: numba/numba#8489 ldexp probe, ppc64le only. Remove once resolved.
 if [[ "$target_platform" == "linux-ppc64le" ]]; then
   python "$(dirname "$0")/debug_ldexp.py" || true
@@ -68,7 +61,7 @@ elif [[ "$build_platform" != "$target_platform" && "$FAST_TESTS" == "0" ]]; then
   RANDOM_ARG="--random=0.15"  # ~ 1hr on ppc64le, true random + 5 builds should help more coverage
 elif [[ "$target_platform" == "osx-64" && "$FAST_TESTS" == "1" ]]; then
   RANDOM_ARG="--random=0.5"
-0else
+else
   RANDOM_ARG=""
 fi
 

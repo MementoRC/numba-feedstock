@@ -121,6 +121,8 @@ tests:
         - debug_frexp.py
     requirements:
       run:
+        - ${{ compiler('c') }}
+        - ${{ compiler('cxx') }}
         # - pip
         # - jinja2
         # - cffi
@@ -131,8 +133,6 @@ tests:
         - ipython
         # - setuptools
         - tbb
-        - ${{ compiler('c') }}
-        - ${{ compiler('cxx') }}
         # - if: linux and build_platform != target_platform
         #   then:
         #     - qemu-execve-${{ target_platform | replace("linux-", "") }}
