@@ -4,7 +4,6 @@ context:
   version: 0.67.0rc1
   sha256: 36d3f50cbb992a4c40a53f070eb04ae774d8be5c0c733994307f65e134112e3e
   fast_tests: "1"
-  qemu_ppc64le: ${{ "qemu-execve-ppc64le" if ppc64le else "" }}
 
 package:
   name: numba
@@ -104,19 +103,18 @@ tests:
   - script:
       - if: ppc64le
         then:
-          - ${{ qemu_ppc64le }} python pip -m check
-      - ${{ qemu_ppc64le }} numba -h
-      - ${{ qemu_ppc64le }} numba -s
+          - python pip -m check
+      - numba -h
+      - numba -s
     requirements:
       run:
         - if: ppc64le
           then:
-            - qemu-execve-ppc64le
             - pip
 
   - script:
       content:
-        - ${{ qemu_ppc64le ~ "bash run_test.sh" if unix else "cmd /c run_test.bat" }}
+        - ${{ "bash run_test.sh" if unix else "cmd /c run_test.bat" }}
       env:
         FAST_TESTS: ${{ "0" if build_number == 0 else fast_tests }}
         build_platform: ${{ build_platform }}
@@ -145,9 +143,6 @@ tests:
         # - ipython
         - setuptools
         - tbb
-        - if: ppc64le
-          then:
-            - qemu-execve-${{ target_platform | replace("linux-", "") }}
 
   - script:
       - numba -h
