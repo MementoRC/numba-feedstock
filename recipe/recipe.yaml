@@ -70,13 +70,6 @@ requirements:
     - cuda-python >=11.6
 
 tests:
-  - script:
-      content:
-        - numba -h
-        - numba -s
-      env:
-        QEMU_LD_PREFIX: ${PREFIX}
-
   - python:
       imports:
         - numba
@@ -109,15 +102,12 @@ tests:
       content:
         - numba -h
         - numba -s
-      env:
-        QEMU_LD_PREFIX: ${PREFIX}
 
   - script:
       content:
         - ${{ "bash run_test.sh" if unix else "cmd /c run_test.bat" }}
       env:
         FAST_TESTS: ${{ "0" if build_number == 0 else fast_tests }}
-        QEMU_LD_PREFIX: ${PREFIX}
         build_platform: ${{ build_platform }}
         target_platform: ${{ target_platform }}
         DEBUG_PROBE_ONLY: ${{ env.get("DEBUG_PROBE_ONLY", default="0") }}
