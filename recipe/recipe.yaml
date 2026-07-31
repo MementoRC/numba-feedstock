@@ -31,31 +31,29 @@ build:
 
 requirements:
   build:
-    - if: build_platform != target_platform
-      then: python
-    - if: build_platform != target_platform
-      then: cross-python_${{ target_platform }}
-    - if: build_platform != target_platform
-      then: numpy >=1.24,<2.5
     - ${{ stdlib('c') }}
     - ${{ compiler('c') }}
     - ${{ compiler('cxx') }}
+    - if: build_platform != target_platform
+      then:
+        - python
+        - cross-python_${{ target_platform }}
+        - numpy >=1.24,<2.5
     # llvm is needed for the headers
     - if: osx
       then: llvm-openmp
     - if: linux
       then: libgomp
-    - pip
-    - setuptools
   host:
+    - pip
     - python
     - llvmlite 0.49.*
     - numpy >=1.24,<2.5
+    - setuptools
     - tbb-devel
   run:
-    - python
     - ${{ pin_compatible('llvmlite', upper_bound='x.x') }}
-    # NumPy has lower and upper limits
+    - python
     - numpy >=1.22.3,<2.5
   ignore_run_exports:
     by_name:
