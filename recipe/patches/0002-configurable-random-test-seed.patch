@@ -1,0 +1,15 @@
+--- a/numba/testing/main.py
++++ b/numba/testing/main.py
+@@ -208,7 +208,11 @@
+     tags = None
+     exclude_tags = None
+     random_select = None
+-    random_seed = 42
++    # Overridable via NUMBA_TEST_RANDOM_SEED so CI can vary which subset of
++    # tests --random selects across runs (the default of 42 makes every
++    # invocation pick the identical deterministic subset forever, since the
++    # test population is sorted before sampling).
++    random_seed = int(os.environ.get('NUMBA_TEST_RANDOM_SEED', 42))
+
+     def __init__(self, *args, **kwargs):
+         topleveldir = kwargs.pop('topleveldir', None)

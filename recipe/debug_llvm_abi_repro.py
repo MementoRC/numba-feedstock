@@ -36,10 +36,9 @@ print(str(module))
 llvm_mod = llvm.parse_assembly(str(module))
 llvm_mod.verify()
 
-llvm.initialize()
-llvm.initialize_native_target()
-llvm.initialize_native_asmprinter()
-
+# llvmlite 0.49+ initializes LLVM automatically and raises RuntimeError if
+# initialize()/initialize_native_target()/initialize_native_asmprinter() are
+# called explicitly -- do not add those calls back.
 target = llvm.Target.from_default_triple()
 print("=== target triple ===")
 print(target.triple)

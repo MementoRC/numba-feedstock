@@ -14,6 +14,7 @@ source:
   sha256: ${{ sha256 }}
   patches:
     - patches/0001-ppc64le-abi-workaround-ldexp-frexp.patch
+    - patches/0002-configurable-random-test-seed.patch
 
 build:
   number: ${{ build_number }}
@@ -44,13 +45,13 @@ requirements:
       then: llvm-openmp
     - if: linux
       then: libgomp
-  host:
-    - python
     - pip
     - setuptools
+  host:
+    - python
     - llvmlite 0.49.*
     - numpy >=1.24,<2.5
-    - tbb-devel 2021.6.0.*
+    - tbb-devel
   run:
     - python
     - ${{ pin_compatible('llvmlite', upper_bound='x.x') }}
@@ -107,10 +108,11 @@ tests:
       content:
         - ${{ "bash run_test.sh" if unix else "cmd /c run_test.bat" }}
       env:
-        FAST_TESTS: ${{ fast_tests or "0" if build_number == 0 else fast_tests }}  # bypass after test review
+        FAST_TESTS: ${{ "0" if build_number == 0 else fast_tests }}
         build_platform: ${{ build_platform }}
         target_platform: ${{ target_platform }}
         DEBUG_PROBE_ONLY: ${{ env.get("DEBUG_PROBE_ONLY", default="0") }}
+        flow_run_id: ${{ env.get("flow_run_id", default="0") }}
     files:
       recipe:
         # On non-unix, rattler-build (Issue 2657 upstream), fails to clean large testsuite
@@ -121,17 +123,21 @@ tests:
         - debug_frexp.py
     requirements:
       run:
-        - pip
-        - jinja2
-        - cffi
-        - scipy
+        # - pip
+        # - jinja2
+        # - cffi
+        # - scipy
         - if: linux and x86_64
-          then: numpy !=1.26.0
+          then:
+            - numpy !=1.26.0
         - ipython
-        - setuptools
+        # - setuptools
         - tbb
         - ${{ compiler('c') }}
         - ${{ compiler('cxx') }}
+        # - if: linux and build_platform != target_platform
+        #   then:
+        #     - qemu-execve-${{ target_platform | replace("linux-", "") }}
 
   - script:
       - numba -h
