@@ -25,6 +25,19 @@ python -m pip check
 numba -h
 # System info tool
 numba -s
+
+# TEMP DEBUG: numba/numba#8489 ldexp probe, ppc64le only. Remove once resolved.
+if [[ "$target_platform" == "linux-ppc64le" ]]; then
+  python "$(dirname "$0")/debug_ldexp.py" || true
+  python "$(dirname "$0")/debug_llvm_abi_repro.py" || true
+  python "$(dirname "$0")/debug_frexp.py" || true
+
+  if [[ "${DEBUG_PROBE_ONLY:-0}" == "1" ]]; then
+    echo "DEBUG_PROBE_ONLY=1: exiting after debug probes, skipping full test suite (QEMU emulation makes it slow)."
+    exit 0
+  fi
+fi
+
 # Check test discovery works
 python -m numba.tests.test_runtests
 
