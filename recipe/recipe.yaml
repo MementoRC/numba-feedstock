@@ -110,25 +110,22 @@ tests:
 
   - script:
       content:
-        - export QEMU_EXECVE=${QEMU_EXECVE:-""}
-        - export QEMU_LD_PREFIX=${CONDA_BUILD_SYSROOT}
+        - if: unix
+          then:
+            - export CROSSCOMPILING_EMULATOR=${QEMU_EXECVE:-""}
+            - export QEMU_EXECVE=${QEMU_EXECVE:-""}
+            - export QEMU_LD_PREFIX=${CONDA_BUILD_SYSROOT}
         - ${{ "bash run_test.sh" if unix else "cmd /c run_test.bat" }}
       env:
         FAST_TESTS: ${{ "0" if build_number == 0 else fast_tests }}
         build_platform: ${{ build_platform }}
         target_platform: ${{ target_platform }}
-        DEBUG_PROBE_ONLY: ${{ env.get("DEBUG_PROBE_ONLY", default="0") }}
         flow_run_id: ${{ env.get("flow_run_id", default="0") }}
     files:
       recipe:
         # On non-unix, rattler-build (Issue 2657 upstream), fails to clean large testsuite
         # Use multiple CI rerun or FAST_TEST: 1
         - run_test.${{ "sh" if unix else "bat" }}
-        - if: ppc64le
-          then:
-            - debug_ldexp.py
-            - debug_llvm_abi_repro.py
-            - debug_frexp.py
     requirements:
       build:
         - if: ppc64le_on_aarch64
@@ -139,13 +136,13 @@ tests:
         - ${{ compiler('cxx') }}
         - pip
         - python
-        # - jinja2
-        # - cffi
-        # - scipy
+        - jinja2
+        - cffi
+        - scipy
         - if: linux and x86_64
           then:
             - numpy !=1.26.0
-        # - ipython
+        - ipython
         - setuptools
         - tbb
 

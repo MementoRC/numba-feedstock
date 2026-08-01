@@ -19,18 +19,6 @@ fi
 TEST_NPROCS="${CPU_COUNT}"
 FAST_TESTS="${FAST_TESTS:-0}"
 
-# TEMP DEBUG: numba/numba#8489 ldexp probe, ppc64le only. Remove once resolved.
-if [[ "$target_platform" == "linux-ppc64le" ]]; then
-  ${QEMU_EXECVE} ${PYTHON} "$(dirname "$0")/debug_ldexp.py" || true
-  ${QEMU_EXECVE} ${PYTHON} "$(dirname "$0")/debug_llvm_abi_repro.py" || true
-  ${QEMU_EXECVE} ${PYTHON} "$(dirname "$0")/debug_frexp.py" || true
-
-  if [[ "${DEBUG_PROBE_ONLY:-0}" == "1" ]]; then
-    echo "DEBUG_PROBE_ONLY=1: exiting after debug probes, skipping full test suite (QEMU emulation makes it slow)."
-    exit 0
-  fi
-fi
-
 # Check test discovery works
 ${QEMU_EXECVE} ${PYTHON} -m numba.tests.test_runtests
 
@@ -56,9 +44,9 @@ if [[ -n "${flow_run_id:-}" && "${flow_run_id}" != "0" ]]; then
 fi
 
 if [[ "$build_platform" != "$target_platform" && "$FAST_TESTS" == "1" ]]; then
-  RANDOM_ARG="--random=0.01"
+  RANDOM_ARG="--random=0.15"  # ~ 1:49hr for ppc64le on x86_64, 55m on aarch64! \o/, true random + 5 builds should help more coverage
 elif [[ "$build_platform" != "$target_platform" && "$FAST_TESTS" == "0" ]]; then
-  RANDOM_ARG="--random=0.15"  # ~ 1:49hr on ppc64le, true random + 5 builds should help more coverage
+  RANDOM_ARG="--random=0.15"
 elif [[ "$target_platform" == "osx-64" && "$FAST_TESTS" == "1" ]]; then
   RANDOM_ARG="--random=0.5"
 else
