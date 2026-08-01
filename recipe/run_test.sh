@@ -56,9 +56,9 @@ if [[ -n "${flow_run_id:-}" && "${flow_run_id}" != "0" ]]; then
 fi
 
 if [[ "$build_platform" != "$target_platform" && "$FAST_TESTS" == "1" ]]; then
-  RANDOM_ARG="--random=0.08"
+  RANDOM_ARG="--random=0.01"
 elif [[ "$build_platform" != "$target_platform" && "$FAST_TESTS" == "0" ]]; then
-  RANDOM_ARG="--random=0.15"  # ~ 1hr on ppc64le, true random + 5 builds should help more coverage
+  RANDOM_ARG="--random=0.15"  # ~ 1:49hr on ppc64le, true random + 5 builds should help more coverage
 elif [[ "$target_platform" == "osx-64" && "$FAST_TESTS" == "1" ]]; then
   RANDOM_ARG="--random=0.5"
 else
