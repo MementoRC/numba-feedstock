@@ -13,7 +13,7 @@ if [[ "$(uname)" == "Linux" ]]; then
   if command -v catchsegv >/dev/null 2>&1; then
     SEGVCATCH=catchsegv
   fi
-  export CC="${QEMU_EXECVE} ${CC} -pthread"
+  export CC="${CC} -pthread"
 fi
 
 TEST_NPROCS="${CPU_COUNT}"

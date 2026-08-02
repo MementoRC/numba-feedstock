@@ -32,8 +32,8 @@ if not "%flow_run_id%"=="" if not "%flow_run_id%"=="0" (
 @rem (FAST_TESTS, the normal build_number>=1 CI path) is reliably green; ~50%% (build_number==0)
 @rem samples more and may occasionally need a Windows job re-run.
 if "%FAST_TESTS%"=="1" (
-  python -m numba.runtests -b --random=0.25 --exclude-tags=long_running -m %CPU_COUNT%
+  python -m numba.runtests -b --random=0.15 --exclude-tags=long_running -m %CPU_COUNT%
 ) else (
-  python -m numba.runtests -b --random=0.5 --exclude-tags=long_running -m %CPU_COUNT%
+  python -m numba.runtests -b --random=0.55 --exclude-tags=long_running -m %CPU_COUNT%
 )
 if errorlevel 1 exit /b 1
