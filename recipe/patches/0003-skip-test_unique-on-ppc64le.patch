@@ -1,0 +1,24 @@
+diff --git a/numba/tests/test_array_methods.py b/numba/tests/test_array_methods.py
+--- a/numba/tests/test_array_methods.py
++++ b/numba/tests/test_array_methods.py
+@@ -1,6 +1,7 @@
+ from itertools import product, cycle
+ import gc
++import platform
+ import sys
+ import unittest
+ import warnings
+
+@@ -1869,6 +1870,12 @@
+             z = x + 1j*y
+             np.testing.assert_equal(pyfunc(z), cfunc(z))
+
++    @unittest.skipIf(
++        platform.machine() == "ppc64le",
++        "Known QEMU/numba-JIT-execution-path issue under ppc64le "
++        "emulation, not reproduced in AOT/static compilation -- see "
++        "conda-forge/numba-feedstock#192",
++    )
+     def test_unique(self):
+         pyfunc = np_unique
+         cfunc = jit(nopython=True)(pyfunc)
