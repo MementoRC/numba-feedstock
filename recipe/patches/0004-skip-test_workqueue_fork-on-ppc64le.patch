@@ -1,0 +1,24 @@
+--- a/numba/tests/test_parallel_backend.py
++++ b/numba/tests/test_parallel_backend.py
+@@ -7,6 +7,7 @@
+ import itertools
+ import multiprocessing
+ import os
++import platform
+ import random
+ import re
+ import subprocess
+@@ -697,6 +698,13 @@
+             self.assertIn(expected, e_msg)
+
+     @unittest.skipUnless(_HAVE_OS_FORK, "Test needs fork(2)")
++    @unittest.skipIf(
++        platform.machine() == "ppc64le",
++        "QEMU user-mode plugin assertion failure kills the forked child under "
++        "ppc64le emulation (qemu_plugin_vcpu_init__async: assertion failed: "
++        "(success), qemu_source/plugins/core.c:292) -- confirmed QEMU emulation "
++        "limitation, not a numba defect -- see conda-forge/numba-feedstock#192",
++    )
+     def test_workqueue_handles_fork_from_non_main_thread(self):
+         # For context see #7872, but essentially the multiprocessing pool
+         # implementation has a number of Python threads for handling the worker

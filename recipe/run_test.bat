@@ -14,14 +14,18 @@ if errorlevel 1 exit /b 1
 
 @rem Vary which subset of tests --random selects across CI runs/architectures
 @rem instead of always sampling the same fixed subset (numba's own default
-@rem random_seed is a hardcoded 42 -- see recipe/patches/0002-...). Only
-@rem override when running in real CI (flow_run_id set); local build-locally.py
-@rem runs stay on numba's reproducible default for easier debugging.
+@rem random_seed is a hardcoded 42 -- see recipe/patches/0002-...). python_version
+@rem is folded in so that different python-version jobs building for the same
+@rem target_platform within one CI run (same flow_run_id) get different, non-
+@rem overlapping ~15%% samples instead of all re-testing the identical subset.
+@rem Only override when running in real CI (flow_run_id set); local
+@rem build-locally.py runs stay on numba's reproducible default for easier
+@rem debugging.
 if not "%flow_run_id%"=="" if not "%flow_run_id%"=="0" (
-  for /f %%S in ('python -c "import os,zlib,sys; sys.stdout.write(str(zlib.crc32((os.environ.get('flow_run_id','0')+'-'+os.environ.get('target_platform','')).encode())))"') do set "NUMBA_TEST_RANDOM_SEED=%%S"
+  for /f %%S in ('python -c "import os,zlib,sys; sys.stdout.write(str(zlib.crc32((os.environ.get('flow_run_id','0')+'-'+os.environ.get('target_platform','')+'-'+os.environ.get('python_version','')).encode())))"') do set "NUMBA_TEST_RANDOM_SEED=%%S"
 )
 if not "%flow_run_id%"=="" if not "%flow_run_id%"=="0" (
-  echo Randomizing numba test selection: NUMBA_TEST_RANDOM_SEED=%NUMBA_TEST_RANDOM_SEED% ^(from flow_run_id=%flow_run_id% target_platform=%target_platform%^)
+  echo Randomizing numba test selection: NUMBA_TEST_RANDOM_SEED=%NUMBA_TEST_RANDOM_SEED% ^(from flow_run_id=%flow_run_id% target_platform=%target_platform% python_version=%python_version%^)
 )
 
 @rem Windows: the test suite is sampled via --random to stay under the rattler-build post-test

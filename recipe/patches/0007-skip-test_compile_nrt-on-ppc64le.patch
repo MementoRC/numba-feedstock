@@ -1,0 +1,24 @@
+--- a/numba/tests/test_pycc.py
++++ b/numba/tests/test_pycc.py
+@@ -1,6 +1,7 @@
+ import contextlib
+ import importlib
+ import os
++import platform
+ import shutil
+ import subprocess
+ import sys
+@@ -229,6 +230,13 @@
+                 """ % {'expected': expected}
+             self.check_cc_compiled_in_subprocess(lib, code)
+
++    @unittest.skipIf(
++        platform.machine() == "ppc64le",
++        "pycc AOT-compiled machine code hits an illegal instruction under "
++        "QEMU user-mode ppc64le emulation (uncaught target signal 4) -- a "
++        "QEMU TCG emulation gap, not a numba/LLVM defect; upstream already "
++        "skips this test on aarch64. See conda-forge/numba-feedstock#192.",
++    )
+     def test_compile_nrt(self):
+         with self.check_cc_compiled(self._test_module.cc_nrt) as lib:
+             # Sanity check

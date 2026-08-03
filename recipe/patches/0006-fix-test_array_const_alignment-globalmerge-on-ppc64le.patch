@@ -1,0 +1,43 @@
+--- a/numba/tests/test_array_constants.py
++++ b/numba/tests/test_array_constants.py
+@@ -1,5 +1,7 @@
+ import numpy as np
+
++import platform
++import re
+ import unittest
+ from numba import njit
+ from numba.core.errors import TypingError
+@@ -106,10 +108,28 @@
+         ir = cfunc.inspect_llvm(sig)
+         for line in ir.splitlines():
+             if 'XXXX_array_contents_XXXX' in line:
+-                self.assertIn("constant [24 x i8]", line)  # sanity check
+-                # Should be the ABI-required alignment for float32
+-                # on most platforms...
+-                self.assertIn(", align 4", line)
++                if platform.machine() == "ppc64le":
++                    # On ppc64le, LLVM's GlobalMerge pass combines the
++                    # module's constants into a single @_MergedGlobals
++                    # struct, so the float32 array is emitted as a
++                    # `[24 x i8]` element inside a packed struct (e.g.
++                    # `constant <{ ... [24 x i8] ... }>, align 16`) rather
++                    # than as its own `constant [24 x i8] ..., align 4`
++                    # global. The array data is still present and the
++                    # merged global is over-aligned (align 16 >= the
++                    # ABI-required 4), which satisfies Issue #1933 (which
++                    # guards against UNDER-alignment).
++                    # See conda-forge/numba-feedstock#192.
++                    self.assertIn("[24 x i8]", line)
++                    m = re.search(r", align (\d+)", line)
++                    self.assertIsNotNone(
++                        m, "no alignment on the array constant")
++                    self.assertGreaterEqual(int(m.group(1)), 4)
++                else:
++                    self.assertIn("constant [24 x i8]", line)  # sanity check
++                    # Should be the ABI-required alignment for float32
++                    # on most platforms...
++                    self.assertIn(", align 4", line)
+                 break
+         else:
+             self.fail("could not find array declaration in LLVM IR")

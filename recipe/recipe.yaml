@@ -1,11 +1,10 @@
 context:
-  build_number: 0
+  build_number: 1
   name: numba
   version: 0.67.0rc1
   sha256: 36d3f50cbb992a4c40a53f070eb04ae774d8be5c0c733994307f65e134112e3e
   fast_tests: "1"
   ppc64le_on_aarch64: ${{ target_platform == "linux-ppc64le" and build_platform == "linux-aarch64" }}
-  is_ppc64le: ${{ target_platform == "linux-ppc64le" }}
 
 package:
   name: numba
@@ -17,13 +16,24 @@ source:
   patches:
     - patches/0001-ppc64le-abi-workaround-ldexp-frexp.patch
     - patches/0002-configurable-random-test-seed.patch
-    # test_unique segfaults only under ppc64le QEMU emulation; believed to be
-    # a QEMU/numba-JIT-execution-path issue, not a genuine LLVM codegen
-    # defect (clean #6606 signature check + clean AOT/no-JIT differential
-    # repro) -- see conda-forge/numba-feedstock#192.
-    - if: is_ppc64le
+    # test_array_const_alignment expects the float32 array constant as its own
+    # `constant [24 x i8] ..., align 4` global; on ppc64le LLVM's GlobalMerge
+    # pass folds the module constants into a single @_MergedGlobals struct
+    # (align 16), so 0006 makes the check platform-aware -- assert the [24 x i8]
+    # array element is present and the alignment is sufficient (>= 4) -- rather
+    # than skipping -- see conda-forge/numba-feedstock#192.
+    # test_compile_nrt runs pycc AOT-compiled machine code that hits an illegal
+    # instruction under QEMU user-mode ppc64le emulation (uncaught target signal
+    # 4) -- a QEMU TCG emulation gap, not a numba defect; upstream already skips
+    # this test on aarch64, so 0007 extends that skip to ppc64le -- see
+    # conda-forge/numba-feedstock#192.
+    - if: ppc64le
       then:
         - patches/0003-skip-test_unique-on-ppc64le.patch
+        - patches/0004-skip-test_workqueue_fork-on-ppc64le.patch
+        - patches/0005-fix-test_inlining_global_dispatcher-bb-count-on-ppc64le.patch
+        - patches/0006-fix-test_array_const_alignment-globalmerge-on-ppc64le.patch
+        - patches/0007-skip-test_compile_nrt-on-ppc64le.patch
 
 build:
   number: ${{ build_number }}
@@ -79,7 +89,7 @@ requirements:
     - cuda-python >=11.6
 
 tests:
-  - if: not ppc64le_on_aarch64
+  - if: not ppc64le_on_aarch64 and not ppc64le
     then:
       - python:
           imports:
@@ -111,7 +121,7 @@ tests:
 
   - script:
       content:
-        - if: not ppc64le_on_aarch64
+        - if: not ppc64le_on_aarch64 and not ppc64le
           then:
             - numba -h
             - numba -s
@@ -129,6 +139,7 @@ tests:
         build_platform: ${{ build_platform }}
         target_platform: ${{ target_platform }}
         flow_run_id: ${{ env.get("flow_run_id", default="0") }}
+        python_version: ${{ python }}
     files:
       recipe:
         # On non-unix, rattler-build (Issue 2657 upstream), fails to clean large testsuite
@@ -136,8 +147,9 @@ tests:
         - run_test.${{ "sh" if unix else "bat" }}
     requirements:
       build:
-        - if: ppc64le_on_aarch64
+        - if: ppc64le_on_aarch64 or ppc64le
           then:
+            - bash >=5.2
             - qemu-execve-ppc64le
       run:
         - ${{ compiler('c') }}
