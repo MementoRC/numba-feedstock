@@ -16,6 +16,20 @@ if [[ "$(uname)" == "Linux" ]]; then
   export CC="${CC} -pthread"
 fi
 
+# --- ppc64le fix guards (conda-forge/numba-feedstock#192) ---------------------
+if [[ "${target_platform:-}" == "linux-ppc64le" ]]; then
+  # Deterministic fast guard on the two ppc64le test FIXES (patches 0005 and
+  # 0006): run them up front so a regression in the patched expected value
+  # fails in seconds -- and so they are always checked even on the random test
+  # slices that would otherwise exclude them. The QEMU-artifact SKIPS (0003,
+  # 0004, 0007) need no guard here. See conda-forge/numba-feedstock#192.
+  echo "VERIFY: ppc64le test fixes (test_inlining_global_dispatcher, test_array_const_alignment) -- #192"
+  $SEGVCATCH ${QEMU_EXECVE} ${PYTHON} -m numba.runtests -v \
+    numba.tests.test_function_type.TestInliningFunctionType.test_inlining_global_dispatcher \
+    numba.tests.test_array_constants.TestConstantArray.test_array_const_alignment
+fi
+# ------------------------------------------------------------------------------
+
 TEST_NPROCS="${CPU_COUNT}"
 FAST_TESTS="${FAST_TESTS:-0}"
 
@@ -33,20 +47,16 @@ if [[ "$("${QEMU_EXECVE}" ${PYTHON} -c "$_NPY_CMD")" == "True" ]]; then
 fi
 
 # Vary which subset of tests --random selects across CI runs/architectures
-# instead of always sampling the same fixed subset (numba's own default
-# random_seed is a hardcoded 42 -- see recipe/patches/0002-...). Only
-# override when running in real CI (flow_run_id set); local build-locally.py
-# runs stay on numba's reproducible default for easier debugging.
 if [[ -n "${flow_run_id:-}" && "${flow_run_id}" != "0" ]]; then
-  NUMBA_TEST_RANDOM_SEED="$(echo -n "${flow_run_id}-${target_platform}" | cksum | cut -d' ' -f1)"
+  NUMBA_TEST_RANDOM_SEED="$(echo -n "${flow_run_id}-${target_platform}-${python_version}" | cksum | cut -d' ' -f1)"
   export NUMBA_TEST_RANDOM_SEED
-  echo "Randomizing numba test selection: NUMBA_TEST_RANDOM_SEED=${NUMBA_TEST_RANDOM_SEED} (from flow_run_id=${flow_run_id} target_platform=${target_platform})"
+  echo "Randomizing numba test selection: NUMBA_TEST_RANDOM_SEED=${NUMBA_TEST_RANDOM_SEED} (from flow_run_id=${flow_run_id} target_platform=${target_platform} python_version=${python_version})"
 fi
 
 if [[ "$build_platform" != "$target_platform" && "$FAST_TESTS" == "1" ]]; then
   RANDOM_ARG="--random=0.15"  # ~ 1:49hr for ppc64le on x86_64, 55m on aarch64! \o/, true random + 5 builds should help more coverage
 elif [[ "$build_platform" != "$target_platform" && "$FAST_TESTS" == "0" ]]; then
-  RANDOM_ARG="--random=0.15"
+  RANDOM_ARG="--random=0.25"
 elif [[ "$target_platform" == "osx-64" && "$FAST_TESTS" == "1" ]]; then
   RANDOM_ARG="--random=0.5"
 else
