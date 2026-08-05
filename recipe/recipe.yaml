@@ -1,9 +1,10 @@
 context:
-  build_number: 1
+  build_number: 2
   name: numba
   version: 0.66.0
   sha256: b900e63a0e26c05ea9a6d5a3a5a0a177cb64c5011887bf43edb8c3ed2c38d363
   fast_tests: "1"
+  ppc64le_on_aarch64: ${{ target_platform == "linux-ppc64le" and build_platform == "linux-aarch64" }}
 
 package:
   name: numba
@@ -12,6 +13,27 @@ package:
 source:
   url: https://pypi.org/packages/source/${{ name[0] }}/${{ name }}/${{ name }}-${{ version }}.tar.gz
   sha256: ${{ sha256 }}
+  patches:
+    - patches/0001-ppc64le-abi-workaround-ldexp-frexp.patch
+    - patches/0002-configurable-random-test-seed.patch
+    # test_array_const_alignment expects the float32 array constant as its own
+    # `constant [24 x i8] ..., align 4` global; on ppc64le LLVM's GlobalMerge
+    # pass folds the module constants into a single @_MergedGlobals struct
+    # (align 16), so 0006 makes the check platform-aware -- assert the [24 x i8]
+    # array element is present and the alignment is sufficient (>= 4) -- rather
+    # than skipping -- see conda-forge/numba-feedstock#192.
+    # test_compile_nrt runs pycc AOT-compiled machine code that hits an illegal
+    # instruction under QEMU user-mode ppc64le emulation (uncaught target signal
+    # 4) -- a QEMU TCG emulation gap, not a numba defect; upstream already skips
+    # this test on aarch64, so 0007 extends that skip to ppc64le -- see
+    # conda-forge/numba-feedstock#192.
+    - if: ppc64le
+      then:
+        - patches/0003-skip-test_unique-on-ppc64le.patch
+        - patches/0004-skip-test_workqueue_fork-on-ppc64le.patch
+        - patches/0005-fix-test_inlining_global_dispatcher-bb-count-on-ppc64le.patch
+        - patches/0006-fix-test_array_const_alignment-globalmerge-on-ppc64le.patch
+        - patches/0007-skip-test_compile_nrt-on-ppc64le.patch
 
 build:
   number: ${{ build_number }}
@@ -48,7 +70,7 @@ requirements:
     - setuptools
     - llvmlite 0.48.*
     - numpy >=1.24,<2.5
-    - tbb-devel 2021.6.0.*
+    - tbb-devel >=2021.6.0
   run:
     - python
     - ${{ pin_compatible('llvmlite', upper_bound='x.x') }}
@@ -69,66 +91,82 @@ requirements:
     - cuda-python >=11.6
 
 tests:
-  - python:
-      imports:
-        - numba
-        - numba.core.annotations
-        - numba.core.datamodel
-        - numba.core.rewrites
-        - numba.core.runtime
-        - numba.core.typeconv
-        - numba.core.typing
-        - numba.core.unsafe
-        - numba.cuda
-        - numba.cuda.cudadrv
-        - numba.cuda.kernels
-        - numba.cuda.simulator
-        - numba.cuda.simulator.cudadrv
-        - numba.cuda.tests
-        - numba.cuda.tests.cudadrv
-        - numba.cuda.tests.cudapy
-        - numba.cuda.tests.cudasim
-        - numba.cuda.tests.nocuda
-        - numba.experimental.jitclass
-        - numba.np.ufunc
-        - numba.scripts
-        - numba.testing
-        - numba.tests
-        - numba.tests.npyufunc
-      pip_check: true
-
-  - script:
-      - numba -h
-      - numba -s
+  - if: not ppc64le_on_aarch64 and not ppc64le
+    then:
+      - python:
+          imports:
+            - numba
+            - numba.core.annotations
+            - numba.core.datamodel
+            - numba.core.rewrites
+            - numba.core.runtime
+            - numba.core.typeconv
+            - numba.core.typing
+            - numba.core.unsafe
+            - numba.cuda
+            - numba.cuda.cudadrv
+            - numba.cuda.kernels
+            - numba.cuda.simulator
+            - numba.cuda.simulator.cudadrv
+            - numba.cuda.tests
+            - numba.cuda.tests.cudadrv
+            - numba.cuda.tests.cudapy
+            - numba.cuda.tests.cudasim
+            - numba.cuda.tests.nocuda
+            - numba.experimental.jitclass
+            - numba.np.ufunc
+            - numba.scripts
+            - numba.testing
+            - numba.tests
+            - numba.tests.npyufunc
+          pip_check: true
 
   - script:
       content:
+        - if: not ppc64le_on_aarch64 and not ppc64le
+          then:
+            - numba -h
+            - numba -s
+
+  - script:
+      content:
+        - if: unix
+          then:
+            - export CROSSCOMPILING_EMULATOR=${QEMU_EXECVE:-""}
+            - export QEMU_EXECVE=${QEMU_EXECVE:-""}
+            - export QEMU_LD_PREFIX=${CONDA_BUILD_SYSROOT}
         - ${{ "bash run_test.sh" if unix else "cmd /c run_test.bat" }}
       env:
-        FAST_TESTS: ${{ "0" if build_number == 0 else fast_tests }}
+        FAST_TESTS: ${{ "1" if not unix else "0" if build_number == 0 else fast_tests }}  # non-unix verified to be long run failure to clean-up
         build_platform: ${{ build_platform }}
         target_platform: ${{ target_platform }}
+        flow_run_id: ${{ env.get("flow_run_id", default="0") }}
+        python_version: ${{ python }}
     files:
       recipe:
         # On non-unix, rattler-build (Issue 2657 upstream), fails to clean large testsuite
         # Use multiple CI rerun or FAST_TEST: 1
         - run_test.${{ "sh" if unix else "bat" }}
     requirements:
+      build:
+        - if: ppc64le_on_aarch64 or ppc64le
+          then:
+            - bash >=5.2
+            - qemu-execve-ppc64le
       run:
+        - ${{ compiler('c') }}
+        - ${{ compiler('cxx') }}
         - pip
+        - python
         - jinja2
         - cffi
         - scipy
         - if: linux and x86_64
-          then: numpy !=1.26.0
+          then:
+            - numpy !=1.26.0
         - ipython
         - setuptools
         - tbb
-        - ${{ compiler('c') }}
-        - ${{ compiler('cxx') }}
-
-  - script:
-      - numba -h
 
 about:
   license: BSD-2-Clause
