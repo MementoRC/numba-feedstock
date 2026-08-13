@@ -17,6 +17,17 @@ jobs:
   check-and-bump:
     runs-on: ubuntu-latest
     steps:
+      - name: Verify ${{ env.RC_BRANCH }} branch exists on ${{ env.REPO }}
+        run: |
+          if ! git ls-remote --exit-code --heads \
+               "https://github.com/${REPO}.git" "$RC_BRANCH" >/dev/null 2>&1; then
+            echo "::error::Branch '${RC_BRANCH}' does not exist on ${REPO}."
+            echo "::error::Seed it from the conda-forge rc track, e.g.:"
+            echo "::error::  git push origin upstream/rc:refs/heads/${RC_BRANCH}"
+            exit 1
+          fi
+          echo "Found ${REPO}@${RC_BRANCH}"
+
       - name: Checkout default branch (for the bump script)
         uses: actions/checkout@v4
 
