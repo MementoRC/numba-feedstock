@@ -21,3 +21,16 @@ diff --git a/numba/cpython/mathimpl.py b/numba/cpython/mathimpl.py
      res = builder.call(fn, (val, exp))
      return impl_ret_untracked(context, builder, sig.return_type, res)
 
+diff --git a/numba/np/math/mathimpl.py b/numba/np/math/mathimpl.py
+--- a/numba/np/math/mathimpl.py
++++ b/numba/np/math/mathimpl.py
+@@ -284,6 +284,9 @@
+         "double": "numba_ldexp",
+         }[str(fltty)]
+     fn = cgutils.insert_pure_function(builder.module, fnty, name=fname)
++    # Same ppc64le ELFv2 signext fix as numba/cpython/mathimpl.py -- this
++    # copy backs the np.ldexp ufunc via numba/np/npyfuncs.py.
++    fn.args[1].add_attribute("signext")
+     res = builder.call(fn, (val, exp))
+     return impl_ret_untracked(context, builder, sig.return_type, res)
+

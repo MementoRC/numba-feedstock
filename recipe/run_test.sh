@@ -29,13 +29,23 @@ FAST_TESTS="${FAST_TESTS:-0}"
 # zero-extends it (clrldi), so -2 arrives as 4294967294 and the result is inf
 # instead of 0.625. frexp is included as a control: its helper takes int* (a
 # 64-bit pointer), which has no sub-word extension issue.
+#
+# np.ldexp is a SEPARATE declaration site from math.ldexp: the scalar path is
+# declared in numba/cpython/mathimpl.py, while the ufunc path is declared in
+# numba/np/math/mathimpl.py via numba/np/npyfuncs.py. A signext fix to one
+# does not cover the other, so both are probed here.
 python -c "
 import math
+import numpy as np
 from numba import njit
 
 @njit
 def jit_ldexp(x, e):
     return math.ldexp(x, e)
+
+@njit
+def jit_np_ldexp(x, e):
+    return np.ldexp(x, e)
 
 @njit
 def jit_frexp(x):
@@ -48,6 +58,19 @@ for x, e, want in ((2.5, -2, 0.625), (1.0, -1, 0.5), (2.5, 0, 2.5), (3.0, 4, 48.
     if got != want:
         failures.append('ldexp(%r, %r) -> %r != %r' % (x, e, got, want))
 
+for x, e, want in ((2.5, -2, 0.625), (1.0, -1, 0.5), (2.5, 0, 2.5), (3.0, 4, 48.0)):
+    got = jit_np_ldexp(x, e)
+    print('np.ldexp(%r, %r) = %r  want %r' % (x, e, got, want))
+    if got != want:
+        failures.append('np.ldexp(%r, %r) -> %r != %r' % (x, e, got, want))
+
+_INT32_MIN = -(2 ** 31)
+for label, fn in (('ldexp', jit_ldexp), ('np.ldexp', jit_np_ldexp)):
+    got = fn(2.5, _INT32_MIN)
+    print('%s(2.5, INT32_MIN) = %r  want 0.0' % (label, got))
+    if got != 0.0:
+        failures.append('%s(2.5, INT32_MIN) -> %r != 0.0' % (label, got))
+
 got = jit_frexp(0.625)
 print('frexp(0.625) = %r  want (0.625, 0)' % (got,))
 if got != (0.625, 0):
@@ -55,7 +78,7 @@ if got != (0.625, 0):
 
 if failures:
     raise SystemExit('ppc64le ldexp/frexp ABI regression:' + ''.join(['\n  ' + f for f in failures]))
-print('ldexp/frexp signext probe OK')
+print('ldexp/np.ldexp/frexp signext probe OK')
 "
 # Run the upstream test explicitly too, since the sampled suite may not select it.
 $SEGVCATCH python -m numba.runtests numba.tests.test_mathlib.TestMathLib.test_ldexp -v
