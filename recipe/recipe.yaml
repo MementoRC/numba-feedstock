@@ -1,5 +1,5 @@
 context:
-  build_number: 0
+  build_number: 1
   name: numba
   version: "0.67.0"
   sha256: cd75aa535b33fa05d9d930b1ae8af9f97a2881e96d72dfb38ec9b78284d9f851
@@ -13,9 +13,12 @@ source:
   url: https://pypi.org/packages/source/${{ name[0] }}/${{ name }}/${{ name }}-${{ version }}.tar.gz
   sha256: ${{ sha256 }}
   patches:
-    # Changes the numba_frexp/numba_ldexp helper signatures, so it must apply on
-    # every platform to keep the C helpers and the JIT call sites in agreement.
-    - patches/0001-ppc64le-abi-workaround-ldexp-frexp.patch
+    # Adds the `signext` attribute to numba_ldexp{,f}'s integer exponent
+    # argument. ELFv2 requires sub-doubleword integer arguments to be extended
+    # per their C type; an unannotated LLVM i32 is zero-extended, which corrupts
+    # negative exponents at the JIT -> C helper boundary on ppc64le. Applies on
+    # every platform since it only annotates an existing declaration.
+    - patches/0001-ppc64le-ldexp-signext.patch
 
 build:
   number: ${{ build_number }}
