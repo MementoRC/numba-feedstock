@@ -132,7 +132,12 @@ jobs:
         shell: bash -el {0}
         run: |
           conda install -y -q -c conda-forge conda-smithy
-          conda smithy rerender --no-check-uptodate
+          # `conda smithy` is a conda SUBCOMMAND PLUGIN, discovered only from
+          # the env conda itself lives in (base). This installs into the
+          # activated `smithy` env, so base's conda cannot see it and errors
+          # with "invalid choice: 'smithy'". The standalone console script is
+          # on PATH in the active env and is the same entry point.
+          conda-smithy rerender --no-check-uptodate
           git add -A
 
       - name: Dry run - show what would be committed
