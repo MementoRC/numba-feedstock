@@ -83,12 +83,17 @@ def take_whole_file(path, side):
     pointless because a rerender overwrites the file wholesale. Also the only
     way to handle modify/delete conflicts: `git checkout --<side>` fails when
     that side deleted the file, so fall back to removing it.
+
+    Returns True if the file was REMOVED rather than checked out, so the
+    caller knows not to `git add` a path that no longer exists.
     """
     try:
         git("checkout", f"--{side}", "--", path)
         git("add", "--", path)
+        return False
     except subprocess.CalledProcessError:
         git("rm", "-f", "--", path)
+        return True
 
 
 def resolve_hunks(text, side):
@@ -175,13 +180,14 @@ def cmd_resolve(args):
     regenerated = [p.strip() for p in args.regenerated.split(",") if p.strip()]
 
     conflicts = conflicted_paths()
-    resolved, unresolved = [], []
+    resolved, unresolved, removed = [], [], []
 
     for path in conflicts:
         # Generated files first: a rerender overwrites them, so take upstream's
         # whole file rather than merging hunks nobody will read.
         if path != recipe_path and matches(path, regenerated):
-            take_whole_file(path, "theirs")
+            if take_whole_file(path, "theirs"):
+                removed.append(path)
             resolved.append(path)
             continue
         if path == recipe_path or matches(path, take_theirs):
@@ -251,6 +257,11 @@ def cmd_resolve(args):
             resolved.append(recipe_path)
 
     for path in resolved:
+        if path in removed:
+            # `git rm` already staged the deletion. `git add` on a path that
+            # exists in neither the worktree nor the index is a fatal
+            # pathspec error, and git add has no --ignore-unmatch.
+            continue
         git("add", "--", path)
 
     if resolved:
