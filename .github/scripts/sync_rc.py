@@ -16,8 +16,12 @@ Two subcommands, driven by .github/workflows/rc-sync.yml:
 Resolution table:
 
   <recipe>                        theirs, then re-inject captured identity
-  --theirs paths (default         theirs (conda-smithy generated; a rerender
-  README.md)                      re-injects the rc channel label)
+  --theirs paths (default         theirs, PER HUNK. README.md is regenerated
+  README.md,conda-forge.yml)      by a rerender anyway; conda-forge.yml is a
+                                  rerender INPUT, so it must be merged rather
+                                  than taken whole-file.
+  --regenerated globs             theirs, WHOLE FILE (conda-smithy output;
+                                  the rerender overwrites it immediately)
   --ours paths (default           ours   (channel_targets: conda-forge
   recipe/conda_build_config.yaml) llvmlite_rc is rc's entire purpose)
   anything else                   left conflicted and reported
@@ -48,9 +52,9 @@ from bump_rc import (  # noqa: E402
 )
 
 DEFAULT_RECIPE = "recipe/recipe.yaml"
-DEFAULT_THEIRS = "README.md"
+DEFAULT_THEIRS = "README.md,conda-forge.yml"
 DEFAULT_OURS = "recipe/conda_build_config.yaml"
-DEFAULT_REGENERATED = ".ci_support/*,.azure-pipelines/*,azure-pipelines.yml,.scripts/*,.gitattributes,.gitignore,LICENSE.txt,README.md"
+DEFAULT_REGENERATED = ".ci_support/*,.azure-pipelines/*,azure-pipelines.yml,.scripts/*,.github/workflows/conda-build.yml,pixi.toml,.gitattributes,.gitignore,LICENSE.txt,README.md"
 
 CONFLICT_START = re.compile(r"^<{7}(?: |$)")
 CONFLICT_BASE = re.compile(r"^\|{7}(?: |$)")
