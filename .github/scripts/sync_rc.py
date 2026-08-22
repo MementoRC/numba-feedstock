@@ -265,7 +265,7 @@ def cmd_resolve(args):
     regenerated = [p.strip() for p in args.regenerated.split(",") if p.strip()]
 
     conflicts = conflicted_paths()
-    resolved, unresolved, removed = [], [], []
+    resolved, unresolved, removed, deferred = [], [], [], []
 
     for path in conflicts:
         # Generated files first: a rerender overwrites them, so take upstream's
@@ -280,8 +280,14 @@ def cmd_resolve(args):
         elif matches(path, take_ours):
             side = "ours"
         else:
-            unresolved.append(path)
-            continue
+            # Unclassified conflict: the two-PR flow never leaves conflict
+            # markers in the tree, so keep rc's side here rather than
+            # aborting. That keeps the tree valid and lets the rerender run;
+            # the file is then handed to PR-2, where main's competing
+            # version is offered as an ordinary reviewable diff instead of a
+            # merge conflict.
+            side = "ours"
+            deferred.append(path)
         target = Path(path)
         target.write_text(resolve_hunks(target.read_text(), side))
         resolved.append(path)
@@ -358,6 +364,8 @@ def cmd_resolve(args):
 
     if resolved:
         print("resolved: " + " ".join(resolved))
+    if deferred:
+        print("deferred: " + " ".join(deferred))
     if unresolved:
         print("UNRESOLVED: " + " ".join(unresolved), file=sys.stderr)
 
@@ -366,8 +374,57 @@ def cmd_resolve(args):
             "conflicted": "true" if unresolved else "false",
             "unresolved": " ".join(unresolved),
             "resolved": " ".join(resolved),
+            "deferred": " ".join(deferred),
         }
     )
+    return 0
+
+
+def cmd_residual(args):
+    """List paths where rc still genuinely diverges from main.
+
+    Run after PR-1 has merged into rc, to find the set PR-2 must offer.
+
+    Stateless by design: it does NOT need to know what PR-1's `resolve` step
+    deferred. Every category `resolve` auto-resolves either already matches
+    main (theirs/regenerated paths) or is excluded here (recipe, ours paths),
+    so whatever's left in a plain `git diff --name-only` IS the deferred set
+    -- no bookkeeping has to be carried between the two PRs.
+    """
+    recipe_path = args.recipe
+    take_theirs = [p.strip() for p in args.theirs.split(",") if p.strip()]
+    take_ours = [p.strip() for p in args.ours.split(",") if p.strip()]
+    regenerated = [p.strip() for p in args.regenerated.split(",") if p.strip()]
+
+    out = git("diff", "--name-only", args.base, args.head)
+    files = []
+    for path in out.splitlines():
+        if not path.strip():
+            continue
+        if path == recipe_path:
+            continue
+        if matches(path, take_theirs) or matches(path, take_ours) or matches(path, regenerated):
+            continue
+        # `git diff --name-only` is symmetric, so it also reports paths that
+        # exist only on rc (base) and were never on main (head) -- rc's own
+        # recipe/patches/*.patch files, concretely. A path absent from head
+        # was never main's to offer: proposing "main's version" of it really
+        # means proposing its deletion, and rc's patches are exactly the
+        # files that must never be deleted this way. The cost is that a
+        # genuine main-side deletion is not propagated automatically here --
+        # a deliberate trade: silently dropping rc content is far worse than
+        # failing to propagate a deletion, and this filter cannot tell "main
+        # never had it" from "main deleted it" without walking history.
+        try:
+            git("cat-file", "-e", f"{args.head}:{path}")
+        except subprocess.CalledProcessError:
+            continue
+        files.append(path)
+
+    for path in files:
+        print(path)
+
+    _emit({"files": " ".join(files), "count": str(len(files))})
     return 0
 
 
@@ -402,6 +459,29 @@ def main():
         "whole-file to upstream, then overwritten by the rerender",
     )
     p_res.set_defaults(func=cmd_resolve)
+
+    p_residual = sub.add_parser(
+        "residual", help="list files where rc still diverges from main after merging"
+    )
+    p_residual.add_argument("--recipe", default=DEFAULT_RECIPE)
+    p_residual.add_argument(
+        "--theirs",
+        default=DEFAULT_THEIRS,
+        help="comma-separated paths resolved in favour of upstream main",
+    )
+    p_residual.add_argument(
+        "--ours",
+        default=DEFAULT_OURS,
+        help="comma-separated paths resolved in favour of rc",
+    )
+    p_residual.add_argument(
+        "--regenerated",
+        default=DEFAULT_REGENERATED,
+        help="comma-separated globs for conda-smithy generated files",
+    )
+    p_residual.add_argument("--base", default="upstream/rc")
+    p_residual.add_argument("--head", default="upstream/main")
+    p_residual.set_defaults(func=cmd_residual)
 
     args = parser.parse_args()
     return args.func(args)

@@ -91,8 +91,67 @@ jobs:
           echo "open=$COUNT"
           echo "open=$COUNT" >> "$GITHUB_OUTPUT"
 
+      - name: Has the framework sync for this commit already landed?
+        id: landed
+        env:
+          GH_TOKEN: ${{ secrets.CF_FEEDSTOCK_PAT }}
+        run: |
+          RAW="$(gh pr list --repo "$UPSTREAM" --base "$RC_BRANCH" \
+                   --head "sync-main-to-rc/${MAIN_SHA}" \
+                   --state merged --json number 2>&1 || true)"
+          echo "gh pr list raw output: [${RAW}]"
+          COUNT="$(printf '%s' "$RAW" | jq 'length' 2>/dev/null || true)"
+          case "$COUNT" in
+            '' | *[!0-9]*)
+              echo "::warning::could not parse a merged-PR count from gh; treating as 0"
+              COUNT=0
+              ;;
+          esac
+          echo "merged=$COUNT"
+          echo "merged=$COUNT" >> "$GITHUB_OUTPUT"
+
+      # Deliberate asymmetry from the guards above: an unparseable read here
+      # falls back to 1 ("assume it exists"), not 0. The safe failure for
+      # "should I open a PR?" is not opening a duplicate, the opposite of the
+      # safe failure for "should I skip this run?".
+      - name: Does the residual PR for this commit already exist?
+        id: residual_pr
+        if: steps.landed.outputs.merged != '0'
+        env:
+          GH_TOKEN: ${{ secrets.CF_FEEDSTOCK_PAT }}
+        run: |
+          RAW="$(gh pr list --repo "$UPSTREAM" --base "$RC_BRANCH" \
+                   --head "sync-residual/${MAIN_SHA}" \
+                   --state all --json number 2>&1 || true)"
+          echo "gh pr list raw output: [${RAW}]"
+          COUNT="$(printf '%s' "$RAW" | jq 'length' 2>/dev/null || true)"
+          case "$COUNT" in
+            '' | *[!0-9]*)
+              echo "::warning::could not parse a residual-PR count from gh; treating as 1 (do not reopen)"
+              COUNT=1
+              ;;
+          esac
+          echo "exists=$COUNT"
+          echo "exists=$COUNT" >> "$GITHUB_OUTPUT"
+
+      # One place decides what this run is doing, so every step below tests a
+      # single value instead of a compound condition. The 2026-08-22 outage was
+      # a compound condition failing invisibly; this keeps that debuggable.
+      - name: Decide what this run is doing
+        id: mode
+        run: |
+          if [ "${{ steps.guard.outputs.needed }}" = 'true' ] && [ "${{ steps.existing.outputs.open }}" = '0' ]; then
+            MODE=pr1
+          elif [ "${{ steps.landed.outputs.merged }}" != '0' ] && [ "${{ steps.residual_pr.outputs.exists }}" = '0' ]; then
+            MODE=pr2
+          else
+            MODE=none
+          fi
+          echo "mode=$MODE"
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+
       - name: Set up Python
-        if: steps.guard.outputs.needed == 'true' && steps.existing.outputs.open == '0'
+        if: steps.mode.outputs.mode != 'none'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -100,11 +159,11 @@ jobs:
       # sync_rc.py does not use `packaging` itself, but it imports helpers from
       # bump_rc.py, which imports packaging.version at module top level.
       - name: Install packaging
-        if: steps.guard.outputs.needed == 'true' && steps.existing.outputs.open == '0'
+        if: steps.mode.outputs.mode != 'none'
         run: python3 -m pip install --upgrade packaging
 
       - name: Capture rc identity before merging
-        if: steps.guard.outputs.needed == 'true' && steps.existing.outputs.open == '0'
+        if: steps.mode.outputs.mode == 'pr1'
         working-directory: rc
         run: |
           python3 "${GITHUB_WORKSPACE}/scaffold/.github/scripts/sync_rc.py" capture \
@@ -112,7 +171,7 @@ jobs:
             --out "${RUNNER_TEMP}/rc-identity.json"
 
       - name: Merge upstream/main
-        if: steps.guard.outputs.needed == 'true' && steps.existing.outputs.open == '0'
+        if: steps.mode.outputs.mode == 'pr1'
         working-directory: rc
         run: |
           git config user.name "rc-sync-bot"
@@ -122,7 +181,7 @@ jobs:
 
       - name: Resolve conflicts
         id: resolve
-        if: steps.guard.outputs.needed == 'true' && steps.existing.outputs.open == '0'
+        if: steps.mode.outputs.mode == 'pr1'
         working-directory: rc
         run: |
           python3 "${GITHUB_WORKSPACE}/scaffold/.github/scripts/sync_rc.py" resolve \
@@ -138,7 +197,7 @@ jobs:
       # markers, conda-smithy cannot parse them, and the job would die instead
       # of producing the intended draft [ci skip] PR.
       - name: Set up conda for rerender
-        if: steps.guard.outputs.needed == 'true' && steps.existing.outputs.open == '0' && steps.resolve.outputs.conflicted != 'true'
+        if: steps.mode.outputs.mode == 'pr1' && steps.resolve.outputs.conflicted != 'true'
         uses: conda-incubator/setup-miniconda@v3
         with:
           miniforge-version: latest
@@ -146,7 +205,7 @@ jobs:
           auto-activate-base: false
 
       - name: Rerender with conda-smithy
-        if: steps.guard.outputs.needed == 'true' && steps.existing.outputs.open == '0' && steps.resolve.outputs.conflicted != 'true'
+        if: steps.mode.outputs.mode == 'pr1' && steps.resolve.outputs.conflicted != 'true'
         working-directory: rc
         shell: bash -el {0}
         run: |
@@ -160,19 +219,20 @@ jobs:
           git add -A
 
       - name: Dry run - show what would be committed
-        if: steps.guard.outputs.needed == 'true' && steps.existing.outputs.open == '0' && inputs.dry_run
+        if: steps.mode.outputs.mode == 'pr1' && inputs.dry_run
         working-directory: rc
         run: |
           git diff --cached --stat
           git diff --cached
 
       - name: Commit, push and open the PR
-        if: steps.guard.outputs.needed == 'true' && steps.existing.outputs.open == '0' && !inputs.dry_run
+        if: steps.mode.outputs.mode == 'pr1' && !inputs.dry_run
         working-directory: rc
         env:
           GH_TOKEN: ${{ secrets.CF_FEEDSTOCK_PAT }}
           CONFLICTED: ${{ steps.resolve.outputs.conflicted }}
           UNRESOLVED: ${{ steps.resolve.outputs.unresolved }}
+          DEFERRED: ${{ steps.resolve.outputs.deferred }}
         run: |
           BRANCH="sync-main-to-rc/${MAIN_SHA}"
           OWNER="${REPO%%/*}"
@@ -191,6 +251,16 @@ jobs:
             SKIP=""
             DRAFT=""
             NOTE=""
+          fi
+
+          # Files rc kept during automatic resolution (both sides changed them,
+          # so no rule is safe) are not lost -- the residual-PR run offers
+          # main's version of each as a separate, reviewable follow-up.
+          if [ -n "$DEFERRED" ]; then
+            NOTE="${NOTE}
+
+          > **Deferred to the residual PR**: \`${DEFERRED}\`
+          > These kept rc's version. A follow-up PR will offer main's version of each."
           fi
 
           git add -A
@@ -215,4 +285,67 @@ jobs:
           - (numba has no \`conda_build_config.yaml\`; rc identity is version/sha256/build_number only)
 
           The head branch lives only on \`${REPO}\`; nothing is created on \`${UPSTREAM}\`.${NOTE}" \
+            || echo "PR create skipped (may already exist)"
+
+      - name: Compute the residual file set
+        id: residual
+        if: steps.mode.outputs.mode == 'pr2'
+        working-directory: rc
+        run: |
+          python3 "${GITHUB_WORKSPACE}/scaffold/.github/scripts/sync_rc.py" residual \
+            --ours "" \
+            --base upstream/rc --head upstream/main
+
+      - name: Open the residual PR
+        if: steps.mode.outputs.mode == 'pr2' && steps.residual.outputs.count != '0'
+        working-directory: rc
+        env:
+          GH_TOKEN: ${{ secrets.CF_FEEDSTOCK_PAT }}
+          FILES: ${{ steps.residual.outputs.files }}
+        run: |
+          BRANCH="sync-residual/${MAIN_SHA}"
+          OWNER="${REPO%%/*}"
+
+          git config user.name "rc-sync-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git checkout -B "$BRANCH" upstream/rc
+
+          # Offer main's version of each divergent file. A path absent from
+          # main is skipped rather than deleted -- sync_rc.py's `residual`
+          # command already filters those out, so this branch should be
+          # unreachable; the warning says so loudly if it ever is not.
+          for f in $FILES; do
+            if git cat-file -e "upstream/main:$f" 2>/dev/null; then
+              git checkout upstream/main -- "$f"
+            else
+              echo "::warning::$f is absent from upstream/main; skipping rather than deleting"
+            fi
+          done
+
+          if git diff --cached --quiet && git diff --quiet; then
+            echo "nothing to offer after all; not opening a PR"
+            exit 0
+          fi
+
+          git commit -am "Offer main's version of the files rc kept during the ${MAIN_SHA} sync"
+
+          git remote set-url --push upstream "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          git push --force upstream "HEAD:refs/heads/${BRANCH}"
+
+          gh pr create --draft \
+            --repo "$UPSTREAM" \
+            --base "$RC_BRANCH" \
+            --head "${OWNER}:${BRANCH}" \
+            --title "[rc] Residual differences from the ${MAIN_SHA} sync" \
+            --body "Follow-up to the framework sync of \`conda-forge:main@${MAIN_SHA}\` into \`rc\`.
+
+          Those files kept **rc's** version during the sync because both sides had changed them and no automatic rule is safe. This PR offers **main's** version of each, as an ordinary diff:
+
+          \`\`\`
+          ${FILES}
+          \`\`\`
+
+          **Opened as a draft on purpose.** Merging it unedited would drop rc's side. Edit this branch to the blend you want -- keep rc's parts, take main's new parts -- then mark it ready.
+
+          Automated by \`.github/workflows/rc-sync.yml\`." \
             || echo "PR create skipped (may already exist)"
