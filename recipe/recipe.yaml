@@ -14,7 +14,15 @@ source:
   url: https://pypi.org/packages/source/${{ name[0] }}/${{ name }}/${{ name }}-${{ version }}.tar.gz
   sha256: ${{ sha256 }}
   patches:
-    - patches/0001-ppc64le-abi-workaround-ldexp-frexp.patch
+    # Adds the `signext` attribute to numba_ldexp{,f}'s integer exponent
+    # argument. ELFv2 requires sub-doubleword integer arguments to be extended
+    # per their C type; an unannotated LLVM i32 is zero-extended, which corrupts
+    # negative exponents at the JIT -> C helper boundary on ppc64le. Applies on
+    # every platform since it only annotates an existing declaration.
+    # Adopted from main, replacing rc's earlier
+    # 0001-ppc64le-abi-workaround-ldexp-frexp.patch: same bug, refined fix, and
+    # unlike rc's it also covers the np.ldexp declaration site.
+    - patches/0001-ppc64le-ldexp-signext.patch
     - patches/0002-configurable-random-test-seed.patch
     # test_array_const_alignment expects the float32 array constant as its own
     # `constant [24 x i8] ..., align 4` global; on ppc64le LLVM's GlobalMerge
