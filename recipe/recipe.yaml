@@ -4,6 +4,7 @@ context:
   version: "0.67.0rc1"
   sha256: 36d3f50cbb992a4c40a53f070eb04ae774d8be5c0c733994307f65e134112e3e
   fast_tests: "1"
+  ppc64le_on_aarch64: ${{ target_platform == "linux-ppc64le" and build_platform == "linux-aarch64" }}
 
 package:
   name: numba
@@ -97,66 +98,86 @@ requirements:
     - cuda-python >=11.6
 
 tests:
-  - python:
-      imports:
-        - numba
-        - numba.core.annotations
-        - numba.core.datamodel
-        - numba.core.rewrites
-        - numba.core.runtime
-        - numba.core.typeconv
-        - numba.core.typing
-        - numba.core.unsafe
-        - numba.cuda
-        - numba.cuda.cudadrv
-        - numba.cuda.kernels
-        - numba.cuda.simulator
-        - numba.cuda.simulator.cudadrv
-        - numba.cuda.tests
-        - numba.cuda.tests.cudadrv
-        - numba.cuda.tests.cudapy
-        - numba.cuda.tests.cudasim
-        - numba.cuda.tests.nocuda
-        - numba.experimental.jitclass
-        - numba.np.ufunc
-        - numba.scripts
-        - numba.testing
-        - numba.tests
-        - numba.tests.npyufunc
-      pip_check: true
-
-  - script:
-      - numba -h
-      - numba -s
+  - if: not ppc64le_on_aarch64
+    then:
+      - python:
+          imports:
+            - numba
+            - numba.core.annotations
+            - numba.core.datamodel
+            - numba.core.rewrites
+            - numba.core.runtime
+            - numba.core.typeconv
+            - numba.core.typing
+            - numba.core.unsafe
+            - numba.cuda
+            - numba.cuda.cudadrv
+            - numba.cuda.kernels
+            - numba.cuda.simulator
+            - numba.cuda.simulator.cudadrv
+            - numba.cuda.tests
+            - numba.cuda.tests.cudadrv
+            - numba.cuda.tests.cudapy
+            - numba.cuda.tests.cudasim
+            - numba.cuda.tests.nocuda
+            - numba.experimental.jitclass
+            - numba.np.ufunc
+            - numba.scripts
+            - numba.testing
+            - numba.tests
+            - numba.tests.npyufunc
+          pip_check: true
 
   - script:
       content:
+        - if: not ppc64le_on_aarch64
+          then:
+            - numba -h
+            - numba -s
+
+  - script:
+      content:
+        - if: unix
+          then:
+            - export CROSSCOMPILING_EMULATOR=${QEMU_EXECVE:-""}
+            - export QEMU_EXECVE=${QEMU_EXECVE:-""}
+            - export QEMU_LD_PREFIX=${CONDA_BUILD_SYSROOT}
         - ${{ "bash run_test.sh" if unix else "cmd /c run_test.bat" }}
       env:
-        FAST_TESTS: ${{ "0" if build_number == 0 else fast_tests }}
+        FAST_TESTS: ${{ "1" if not unix else "0" if build_number == 0 else fast_tests }}  # non-unix verified to be long run failure to clean-up
         build_platform: ${{ build_platform }}
         target_platform: ${{ target_platform }}
+        flow_run_id: ${{ env.get("flow_run_id", default="0") }}
+        python_version: ${{ python }}
     files:
       recipe:
         # On non-unix, rattler-build (Issue 2657 upstream), fails to clean large testsuite
         # Use multiple CI rerun or FAST_TEST: 1
         - run_test.${{ "sh" if unix else "bat" }}
     requirements:
+      build:
+        - if: linux and build_platform != target_platform
+          then:
+            - ${{ compiler('c') }}
+            # numba's pycc compiles nrt.cpp, so the C++ cross compiler is needed
+            # at test time too -- see conda-forge/numba-feedstock#201.
+            - ${{ compiler('cxx') }}
+            - bash >=5.2
+            - qemu-execve-ppc64le
       run:
+        - ${{ compiler('c') }}
+        - ${{ compiler('cxx') }}
         - pip
+        - python
         - jinja2
         - cffi
         - scipy
         - if: linux and x86_64
-          then: numpy !=1.26.0
+          then:
+            - numpy !=1.26.0
         - ipython
         - setuptools
         - tbb
-        - ${{ compiler('c') }}
-        - ${{ compiler('cxx') }}
-
-  - script:
-      - numba -h
 
 about:
   license: BSD-2-Clause
