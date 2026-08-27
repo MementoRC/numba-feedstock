@@ -1,5 +1,5 @@
 context:
-  build_number: 1
+  build_number: 2
   name: numba
   version: 0.67.0rc1
   sha256: 36d3f50cbb992a4c40a53f070eb04ae774d8be5c0c733994307f65e134112e3e
@@ -14,7 +14,15 @@ source:
   url: https://pypi.org/packages/source/${{ name[0] }}/${{ name }}/${{ name }}-${{ version }}.tar.gz
   sha256: ${{ sha256 }}
   patches:
-    - patches/0001-ppc64le-abi-workaround-ldexp-frexp.patch
+    # Adds the `signext` attribute to numba_ldexp{,f}'s integer exponent
+    # argument. ELFv2 requires sub-doubleword integer arguments to be extended
+    # per their C type; an unannotated LLVM i32 is zero-extended, which corrupts
+    # negative exponents at the JIT -> C helper boundary on ppc64le. Applies on
+    # every platform since it only annotates an existing declaration.
+    # Adopted from main, replacing rc's earlier
+    # 0001-ppc64le-abi-workaround-ldexp-frexp.patch: same bug, refined fix, and
+    # unlike rc's it also covers the np.ldexp declaration site.
+    - patches/0001-ppc64le-ldexp-signext.patch
     - patches/0002-configurable-random-test-seed.patch
     # test_array_const_alignment expects the float32 array constant as its own
     # `constant [24 x i8] ..., align 4` global; on ppc64le LLVM's GlobalMerge
@@ -89,7 +97,7 @@ requirements:
     - cuda-python >=11.6
 
 tests:
-  - if: not ppc64le_on_aarch64 and not ppc64le
+  - if: not ppc64le_on_aarch64
     then:
       - python:
           imports:
@@ -121,7 +129,7 @@ tests:
 
   - script:
       content:
-        - if: not ppc64le_on_aarch64 and not ppc64le
+        - if: not ppc64le_on_aarch64
           then:
             - numba -h
             - numba -s
@@ -147,8 +155,12 @@ tests:
         - run_test.${{ "sh" if unix else "bat" }}
     requirements:
       build:
-        - if: ppc64le_on_aarch64 or ppc64le
+        - if: linux and build_platform != target_platform
           then:
+            - ${{ compiler('c') }}
+            # numba's pycc compiles nrt.cpp, so the C++ cross compiler is needed
+            # at test time too -- see conda-forge/numba-feedstock#201.
+            - ${{ compiler('cxx') }}
             - bash >=5.2
             - qemu-execve-ppc64le
       run:
