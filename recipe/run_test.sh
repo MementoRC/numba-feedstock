@@ -3,17 +3,25 @@
 set -euxo pipefail
 IFS=$'\n\t'
 
-# --- use vanilla qemu-<arch>, not the execve-intercepting build (#201) -------
-# qemu-execve-ppc64le intercepts every guest execve() by design, so a python
-# running under it cannot exec the build-platform cross-compiler -- every
-# subprocess gets redirected back through the same interceptor. The same
-# conda package also ships a vanilla qemu-<arch> with no execve patches.
-# The activation-set env var is cleared below so nothing re-enables
-# interception; ppc64le child processes are then routed by kernel
-# binfmt_misc, which .github/workflows/conda-build.yml registers on the
-# x86_64/aarch64 runners. See conda-forge/numba-feedstock#201.
+# --- qemu-execve interception, arch-aware since build 5 -----------------------
+# qemu-execve-ppc64le 11.0.3 build 5 routes execve() by ELF arch: foreign
+# ppc64le binaries go through qemu, native build-platform binaries exec
+# through untouched. That fixes the reason #201 disabled interception (the
+# older build intercepted every guest execve indiscriminately, so guest
+# python could not exec the build-platform cross-compiler), and it removes
+# the dependency on kernel binfmt_misc -- which conda-smithy's generated
+# .github/workflows/conda-build.yml only registers on x86_64 hosts, never on
+# the aarch64 hosts that actually run the ppc64le lanes (conda-forge.yml sets
+# build_platform: linux_ppc64le -> linux_aarch64). Without interception,
+# tests that spawn sys.executable themselves (test_pycc,
+# test_parallel_backend) die with "OSError: [Errno 8] Exec format error".
+#
+# QEMU_EXECVE stays SET so nested guest execs are intercepted. QEMU_RUN is
+# the vanilla qemu-<arch> shipped by the same package, still needed as an
+# explicit prefix for the top-level launch of ppc64le ${PYTHON} from host
+# bash -- that exec is not made by a process already running under qemu.
+# See conda-forge/numba-feedstock#201 and #203.
 QEMU_RUN="${QEMU_EXECVE/qemu-execve-/qemu-}"
-export QEMU_EXECVE=""
 export CROSSCOMPILING_EMULATOR="${QEMU_RUN}"
 
 export NUMBA_DEVELOPER_MODE=1
