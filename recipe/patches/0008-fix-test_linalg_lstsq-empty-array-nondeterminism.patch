@@ -1,0 +1,11 @@
+--- a/numba/tests/test_linalg.py
++++ b/numba/tests/test_linalg.py
+@@ -1619,7 +1619,7 @@
+         ]
+
+         for A, b in empties:
+-            args = (np.empty(A), np.empty(b))
++            args = (np.zeros(A), np.zeros(b))
+             self.assert_raise_on_empty(cfunc, args)
+
+         # Test input validation

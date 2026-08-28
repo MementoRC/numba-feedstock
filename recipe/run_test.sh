@@ -3,26 +3,39 @@
 set -euxo pipefail
 IFS=$'\n\t'
 
-# --- qemu-execve interception, arch-aware since build 5 -----------------------
-# qemu-execve-ppc64le 11.0.3 build 5 routes execve() by ELF arch: foreign
-# ppc64le binaries go through qemu, native build-platform binaries exec
-# through untouched. That fixes the reason #201 disabled interception (the
-# older build intercepted every guest execve indiscriminately, so guest
-# python could not exec the build-platform cross-compiler), and it removes
-# the dependency on kernel binfmt_misc -- which conda-smithy's generated
-# .github/workflows/conda-build.yml only registers on x86_64 hosts, never on
-# the aarch64 hosts that actually run the ppc64le lanes (conda-forge.yml sets
-# build_platform: linux_ppc64le -> linux_aarch64). Without interception,
-# tests that spawn sys.executable themselves (test_pycc,
-# test_parallel_backend) die with "OSError: [Errno 8] Exec format error".
+# --- run the guest under qemu-execve, not vanilla qemu (reverts #201) --------
+# qemu-execve-ppc64le 11.0.3 build 5 is arch-aware: it forwards execve() of a
+# NATIVE build-platform binary straight to the host kernel, and only routes
+# FOREIGN ppc64le ELFs back through emulation. That fixes what #201 hit with
+# the older build, where every guest execve was intercepted indiscriminately
+# and guest python therefore could not exec the build-platform cross-compiler.
 #
-# QEMU_EXECVE stays SET so nested guest execs are intercepted. QEMU_RUN is
-# the vanilla qemu-<arch> shipped by the same package, still needed as an
-# explicit prefix for the top-level launch of ppc64le ${PYTHON} from host
-# bash -- that exec is not made by a process already running under qemu.
+# The guest must be LAUNCHED BY qemu-execve for interception to exist at all --
+# it is a property of the emulating process, not of any environment variable.
+# Launching with the vanilla qemu-ppc64le shipped in the same package leaves a
+# guest whose own execve() syscalls go straight to the aarch64 host kernel,
+# which cannot run a ppc64le ELF, so tests that spawn sys.executable themselves
+# (test_pycc, test_parallel_backend) die with
+# "OSError: [Errno 8] Exec format error".
+#
+# This also removes any dependence on kernel binfmt_misc, which conda-smithy's
+# generated .github/workflows/conda-build.yml registers only on x86_64 hosts --
+# never on the aarch64 hosts that actually run the ppc64le lanes
+# (conda-forge.yml sets build_platform: linux_ppc64le -> linux_aarch64).
 # See conda-forge/numba-feedstock#201 and #203.
-QEMU_RUN="${QEMU_EXECVE/qemu-execve-/qemu-}"
-export CROSSCOMPILING_EMULATOR="${QEMU_RUN}"
+export CROSSCOMPILING_EMULATOR="${QEMU_EXECVE}"
+#
+# Native-arch passthrough is OPT-IN and needs BOTH gates: QEMU_EXECVE non-empty
+# (else execve dispatch never reaches qemu_execve() at all) and
+# QEMU_EXECVE_NATIVE_PASSTHROUGH set. Without the second gate, a guest process
+# exec'ing a NATIVE build-platform binary -- e.g. test_pycc / test_cffi invoking
+# $BUILD_PREFIX/bin/powerpc64le-conda-linux-gnu-cc, which is an aarch64 driver
+# that merely EMITS ppc64le -- falls through to qemu's standard ELF arch check
+# and dies with "Invalid ELF image for this architecture". The qemu-execve
+# package sets no default for either variable; the invoking environment must
+# supply both. Harmless on native lanes, where QEMU_EXECVE is empty and
+# qemu_execve() is never reached.
+export QEMU_EXECVE_NATIVE_PASSTHROUGH=1
 
 export NUMBA_DEVELOPER_MODE=1
 export NUMBA_DISABLE_ERROR_MESSAGE_HIGHLIGHTING=1
@@ -37,6 +50,55 @@ if [[ "$(uname)" == "Linux" ]]; then
   export CC="${CC} -pthread"
 fi
 
+# --- qemu-execve native-passthrough quick-fail (conda-forge/numba-feedstock#203)
+# Cheapest possible check that the native-arch passthrough gate set above is
+# actually armed: make the GUEST python exec a NATIVE build-platform binary --
+# the cross-compiler driver, an aarch64 executable that merely EMITS ppc64le.
+# That nested execve is the exact operation that killed the whole
+# test_pycc/test_cffi family in #203 ("Invalid ELF image for this
+# architecture"). Probing it directly compiles nothing and costs a fraction of
+# a second, so a broken gate fails HERE instead of ~40s later in the toolchain
+# block below -- and it is cheap enough to run locally before pushing to CI.
+#
+# ${CC} has "-pthread" appended above, so strip arguments before exec'ing it.
+# The path is passed as sys.argv[1] rather than interpolated into the -c source
+# to avoid nested-quoting breakage.
+_CC_BIN="${CC:-}"
+_CC_BIN="${_CC_BIN%% *}"
+if [[ -n "${QEMU_EXECVE:-}" && -n "${_CC_BIN}" ]]; then
+  echo "VERIFY: qemu-execve native-arch passthrough (guest exec of ${_CC_BIN}) -- #203"
+  ${QEMU_EXECVE} ${PYTHON} -c \
+    'import subprocess, sys; subprocess.check_call([sys.argv[1], "--version"])' \
+    "${_CC_BIN}"
+fi
+unset _CC_BIN
+# --- end native-passthrough quick-fail ---------------------------------------
+
+# --- forefronted known-red tests, ALL platforms (conda-forge/numba-feedstock#203)
+# Mirror of the win_64 block in run_test.bat lines 31-36, extended to every unix
+# lane. Run serially and UNSAMPLED so they execute identically on every lane and
+# every python version.
+#
+# Why this is needed: the main suite below is --random sampled, so a test absent
+# from a log may simply never have been drawn. That makes it impossible to tell
+# "passed", "skipped" and "not selected" apart, and impossible to characterise a
+# flaky failure. Forefronting gives a deterministic per-lane signal.
+#
+# test_linalg_lstsq is nondeterministic by nature: numba checks infs/NaN BEFORE
+# emptiness in lstsq, so the content of the uninitialized LAPACK workspace decides
+# which LinAlgError surfaces for a zero-size input. Observed FAIL/PASS/FAIL on
+# win_64, and recorded known-red on win_64 py3.11 and py3.14t. Running it on unix
+# too establishes whether it is Windows-specific or general.
+#
+# ${QEMU_EXECVE} is empty on native lanes and expands away; on cross lanes it is
+# the emulator. It stays UNQUOTED for exactly that reason.
+echo "VERIFY: forefronted known-red tests (lstsq, charseq, recursion) -- #203"
+$SEGVCATCH ${QEMU_EXECVE} ${PYTHON} -m numba.runtests -v \
+  numba.tests.test_linalg.TestLinalgLstsq.test_linalg_lstsq \
+  numba.tests.test_record_dtype.TestRecordDtypeWithCharSeq.test_npm_argument_charseq \
+  numba.tests.test_recursion
+# --- end forefronted known-red tests -----------------------------------------
+
 # --- ppc64le fix guards (conda-forge/numba-feedstock#192) ---------------------
 if [[ "${target_platform:-}" == "linux-ppc64le" ]]; then
   # Deterministic fast guard on the two ppc64le test FIXES (patches 0005 and
@@ -46,7 +108,7 @@ if [[ "${target_platform:-}" == "linux-ppc64le" ]]; then
   # 0004, 0007) are audited separately below.
   # See conda-forge/numba-feedstock#192.
   echo "VERIFY: ppc64le test fixes (test_inlining_global_dispatcher, test_array_const_alignment) -- #192"
-  $SEGVCATCH ${QEMU_RUN} ${PYTHON} -m numba.runtests -v \
+  $SEGVCATCH ${QEMU_EXECVE} ${PYTHON} -m numba.runtests -v \
     numba.tests.test_function_type.TestInliningFunctionType.test_inlining_global_dispatcher \
     numba.tests.test_array_constants.TestConstantArray.test_array_const_alignment
 fi
@@ -77,9 +139,9 @@ fi
 # only the patch filename.
 if [[ "${target_platform:-}" == "linux-ppc64le" ]]; then
   echo "AUDIT: ppc64le QEMU-artifact skips (patches 0003, 0004, 0007) -- #192"
-  ${QEMU_RUN} ${PYTHON} -m unittest -v -k test_unique numba.tests.test_array_methods
-  ${QEMU_RUN} ${PYTHON} -m unittest -v -k test_workqueue_handles_fork_from_non_main_thread numba.tests.test_parallel_backend
-  ${QEMU_RUN} ${PYTHON} -m unittest -v -k test_compile_nrt numba.tests.test_pycc
+  ${QEMU_EXECVE} ${PYTHON} -m unittest -v -k test_unique numba.tests.test_array_methods
+  ${QEMU_EXECVE} ${PYTHON} -m unittest -v -k test_workqueue_handles_fork_from_non_main_thread numba.tests.test_parallel_backend
+  ${QEMU_EXECVE} ${PYTHON} -m unittest -v -k test_compile_nrt numba.tests.test_pycc
 fi
 # --- end ppc64le QEMU-artifact skip audit --------------------------------------
 
@@ -103,12 +165,12 @@ FAST_TESTS="${FAST_TESTS:-0}"
 # does not cover the other, so both are probed here.
 #
 # Adopted from main and adapted for rc: plain `python` becomes
-# `${QEMU_RUN} ${PYTHON}` so the probe runs under emulation on the
-# ppc64le-on-aarch64 cross build. QEMU_RUN stays UNQUOTED -- it is empty on
+# `${QEMU_EXECVE} ${PYTHON}` so the probe runs under emulation on the
+# ppc64le-on-aarch64 cross build. QEMU_EXECVE stays UNQUOTED -- it is empty on
 # native platforms, and a quoted empty expansion is an unrunnable argv[0].
 # Left unguarded, as on main, so it also runs natively where it would catch a
 # signext change that breaks x86_64.
-${QEMU_RUN} ${PYTHON} -c "
+${QEMU_EXECVE} ${PYTHON} -c "
 import math
 import numpy as np
 from numba import njit
@@ -155,7 +217,7 @@ if failures:
 print('ldexp/np.ldexp/frexp signext probe OK')
 "
 # Run the upstream test explicitly too, since the sampled suite may not select it.
-$SEGVCATCH ${QEMU_RUN} ${PYTHON} -m numba.runtests numba.tests.test_mathlib.TestMathLib.test_ldexp -v
+$SEGVCATCH ${QEMU_EXECVE} ${PYTHON} -m numba.runtests numba.tests.test_mathlib.TestMathLib.test_ldexp -v
 # --- end ppc64le probe -------------------------------------------------------
 
 # --- cross-build toolchain quick-fail (conda-forge/numba-feedstock#201) -------
@@ -183,7 +245,7 @@ $SEGVCATCH ${QEMU_RUN} ${PYTHON} -m numba.runtests numba.tests.test_mathlib.Test
 # to the test requirements would make it actually execute.
 if [[ "${target_platform:-}" == "linux-ppc64le" ]]; then
   echo "VERIFY: test-time C/C++ toolchain availability -- see conda-forge/numba-feedstock#201"
-  $SEGVCATCH ${QEMU_RUN} ${PYTHON} -m numba.runtests -v \
+  $SEGVCATCH ${QEMU_EXECVE} ${PYTHON} -m numba.runtests -v \
     numba.tests.test_pycc.TestCC.test_compile_for_cpu \
     numba.tests.test_pycc.TestCC.test_dynamic_exc \
     numba.tests.test_pycc.TestCC.test_hashing \
@@ -196,7 +258,7 @@ fi
 # --- end toolchain quick-fail ------------------------------------------------
 
 # Check test discovery works
-${QEMU_RUN} ${PYTHON} -m numba.tests.test_runtests
+${QEMU_EXECVE} ${PYTHON} -m numba.tests.test_runtests
 
 # Disable NumPy AVX512_SKX dispatch when it is dispatchable and NumPy >= 1.22
 # (avoids low-accuracy SVML libm replacements in ufunc loops).
@@ -204,7 +266,7 @@ _NPY_CMD='from numba.misc import numba_sysinfo;\
           sysinfo=numba_sysinfo.get_sysinfo();\
           print("AVX512_SKX" in sysinfo.get("NumPy Supported SIMD dispatch", ()) and
                 sysinfo.get("NumPy Version", "0")>="1.22")'
-if [[ "$("${QEMU_RUN}" ${PYTHON} -c "$_NPY_CMD")" == "True" ]]; then
+if [[ "$(${QEMU_EXECVE} ${PYTHON} -c "$_NPY_CMD")" == "True" ]]; then
   export NPY_DISABLE_CPU_FEATURES="AVX512_SKX"
 fi
 
@@ -225,4 +287,4 @@ else
   RANDOM_ARG=""
 fi
 
-$SEGVCATCH ${QEMU_RUN} ${PYTHON} -m numba.runtests -b $RANDOM_ARG --exclude-tags=long_running -m "$TEST_NPROCS"
+$SEGVCATCH ${QEMU_EXECVE} ${PYTHON} -m numba.runtests -b $RANDOM_ARG --exclude-tags=long_running -m "$TEST_NPROCS"

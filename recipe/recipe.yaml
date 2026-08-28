@@ -24,6 +24,21 @@ source:
     # unlike rc's it also covers the np.ldexp declaration site.
     - patches/0001-ppc64le-ldexp-signext.patch
     - patches/0002-configurable-random-test-seed.patch
+    # test_linalg_lstsq is nondeterministic by nature: numba's lstsq checks
+    # for infs/NaN BEFORE checking emptiness, so for the "check empty arrays"
+    # cases -- where one of A/b is an empty shape but the OTHER is a valid,
+    # non-empty shape -- np.empty() on the non-empty side returns
+    # uninitialized memory that can happen to contain NaN/Inf garbage. That
+    # garbage nondeterministically decides which LinAlgError path/message
+    # fires, producing the FAIL/PASS/FAIL flakiness observed on win_64
+    # (recorded known-red on win_64 py3.11 and py3.14t). 0008 switches both
+    # np.empty() calls to np.zeros() so the non-empty side is always
+    # deterministically zero and the NaN/Inf check can never spuriously
+    # trigger -- see conda-forge/numba-feedstock#203. This also makes the
+    # forefronted test_linalg_lstsq probe in run_test.sh a real regression
+    # guard instead of just a diagnostic; that probe is left in place
+    # unconditionally as a permanent audit.
+    - patches/0008-fix-test_linalg_lstsq-empty-array-nondeterminism.patch
     # test_array_const_alignment expects the float32 array constant as its own
     # `constant [24 x i8] ..., align 4` global; on ppc64le LLVM's GlobalMerge
     # pass folds the module constants into a single @_MergedGlobals struct
