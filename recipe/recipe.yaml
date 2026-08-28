@@ -163,7 +163,7 @@ tests:
             # at test time too -- see conda-forge/numba-feedstock#201.
             - ${{ compiler('cxx') }}
             - bash >=5.2
-            - qemu-execve-ppc64le *_5
+            - qemu-execve-ppc64le 11.* *_5
       run:
         - ${{ compiler('c') }}
         - ${{ compiler('cxx') }}
