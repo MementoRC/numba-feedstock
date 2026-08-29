@@ -8,12 +8,27 @@
  import random
  import re
  import subprocess
-@@ -697,6 +698,13 @@
+@@ -28,6 +29,14 @@
+ 
+ _TEST_TIMEOUT = _RUNNER_TIMEOUT - 60.
+ 
++# ppc64le is the emulation-affected architecture on conda-forge's CI, but the
++# same QEMU user-mode emulation gap also shows up when ppc64le is emulated on
++# a non-ppc64le host (e.g. QEMU_EXECVE set for cross-testing) -- see
++# conda-forge/numba-feedstock#192.
++_NUMBA_CF_EMULATED = (
++    platform.machine() == "ppc64le" or bool(os.environ.get("QEMU_EXECVE"))
++)
++
+ 
+ # Check which backends are available
+ # TODO: Put this in a subprocess so the address space is kept clean
+@@ -697,6 +706,13 @@
              self.assertIn(expected, e_msg)
-
+ 
      @unittest.skipUnless(_HAVE_OS_FORK, "Test needs fork(2)")
 +    @unittest.skipIf(
-+        platform.machine() == "ppc64le",
++        _NUMBA_CF_EMULATED,
 +        "QEMU user-mode plugin assertion failure kills the forked child under "
 +        "ppc64le emulation (qemu_plugin_vcpu_init__async: assertion failed: "
 +        "(success), qemu_source/plugins/core.c:292) -- confirmed QEMU emulation "
