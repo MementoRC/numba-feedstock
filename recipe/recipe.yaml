@@ -178,7 +178,7 @@ tests:
             # at test time too -- see conda-forge/numba-feedstock#201.
             - ${{ compiler('cxx') }}
             - bash >=5.2
-            - qemu-execve-${{ target_platform | replace("linux-64", "x86_64") | replace("linux-", "") }} [version>=11, build_number>=5]
+            - qemu-execve-${{ target_platform | replace("linux-64", "x86_64") | replace("linux-", "") }} [version=">=11", build_number=">=5"]
       run:
         - ${{ compiler('c') }}
         - ${{ compiler('cxx') }}
