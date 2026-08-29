@@ -16,7 +16,6 @@ github:
   tooling_branch_name: main
 provider:
   linux_aarch64: default
-  # osx_64: default
   osx_arm64: default
 test: all
 workflow_settings:

@@ -4,7 +4,7 @@ context:
   version: "0.67.0rc1"
   sha256: 36d3f50cbb992a4c40a53f070eb04ae774d8be5c0c733994307f65e134112e3e
   fast_tests: "1"
-  ppc64le_on_aarch64: ${{ target_platform == "linux-ppc64le" and build_platform == "linux-aarch64" }}
+  built_on_aarch64: ${{ build_platform == "linux-aarch64" }}
 
 package:
   name: numba
@@ -113,7 +113,7 @@ requirements:
     - cuda-python >=11.6
 
 tests:
-  - if: not ppc64le_on_aarch64
+  - if: not built_on_aarch64
     then:
       - python:
           imports:
@@ -145,7 +145,7 @@ tests:
 
   - script:
       content:
-        - if: not ppc64le_on_aarch64
+        - if: not built_on_aarch64
           then:
             - numba -h
             - numba -s
@@ -178,7 +178,7 @@ tests:
             # at test time too -- see conda-forge/numba-feedstock#201.
             - ${{ compiler('cxx') }}
             - bash >=5.2
-            - qemu-execve-ppc64le 11.* *_5
+            - qemu-execve-${{ target_platform | replace("linux-64", "x86_64") | replace("linux-", "") }} [version>=11, build_number>=5]
       run:
         - ${{ compiler('c') }}
         - ${{ compiler('cxx') }}
