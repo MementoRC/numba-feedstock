@@ -71,8 +71,183 @@ if [[ -n "${QEMU_EXECVE:-}" && -n "${_CC_BIN}" ]]; then
     'import subprocess, sys; subprocess.check_call([sys.argv[1], "--version"])' \
     "${_CC_BIN}"
 fi
-unset _CC_BIN
 # --- end native-passthrough quick-fail ---------------------------------------
+
+# --- test_pycc failure triage probe (conda-forge/numba-feedstock#203) ---------
+# The quick-fail above proves only that the guest can START the native cross-cc
+# driver. It does not show whether that driver can then do its job. Two very
+# different faults both surface as "the test_pycc family dies", and they have
+# opposite fixes -- this block tells them apart in one CI run:
+#
+#   (A) RESOLUTION. The native driver starts but cannot find its own children
+#       (cc1, as, collect2/ld) because the guest environment does not carry
+#       $BUILD_PREFIX's exec dirs in PATH/COMPILER_PATH. The fix is environment,
+#       right here in run_test.sh, and patch 0007's skip of TestDistutilsSupport
+#       /test_compile_nrt would then be unnecessary rather than load-bearing.
+#
+#   (B) FOREIGN EXEC BELOW THE HANDOFF. The driver works and emits a valid
+#       ppc64le binary, but nothing under it can RUN one. Native passthrough
+#       hands the driver straight to the host kernel, which ends qemu-execve's
+#       interception for that entire subtree, so any ppc64le ELF exec'd further
+#       down gets no emulator. That is not fixable in this recipe: qemu-execve
+#       would need an LD_PRELOAD shim to re-inject emulation into native
+#       children.
+#
+# Every step is non-fatal (|| echo) so a single push reports ALL of them rather
+# than stopping at the first. Read top-to-bottom: the first FAIL names the class.
+if [[ -n "${QEMU_EXECVE:-}" && -n "${_CC_BIN:-}" ]]; then
+  echo "PROBE: test_pycc triage -- resolution vs foreign-exec -- #203"
+  _PROBE_DIR="$(mktemp -d)"
+  printf 'int main(void){return 0;}\n' > "${_PROBE_DIR}/probe.c"
+
+  # Step 1 -- the driver's own view of its search paths, read from INSIDE the
+  # guest. This is the direct readout for fault class (A): if cc1 resolves to a
+  # bare name rather than an absolute path, PATH/COMPILER_PATH is the problem.
+  ${QEMU_EXECVE} ${PYTHON} -c \
+    'import subprocess, sys; subprocess.check_call([sys.argv[1], "-print-search-dirs"])' \
+    "${_CC_BIN}" || echo "PROBE FAIL step1: guest cannot query driver search dirs"
+  ${QEMU_EXECVE} ${PYTHON} -c \
+    'import subprocess, sys; subprocess.check_call([sys.argv[1], "-print-prog-name=cc1"])' \
+    "${_CC_BIN}" || echo "PROBE FAIL step1b: guest cannot resolve cc1"
+
+  # Step 2 -- COMPILE. Forces the native driver to exec its own children (cc1,
+  # as). A failure here naming cc1/as/ld is fault class (A), RESOLUTION.
+  ${QEMU_EXECVE} ${PYTHON} -c \
+    'import subprocess, sys; subprocess.check_call([sys.argv[1], "-c", sys.argv[2], "-o", sys.argv[3]])' \
+    "${_CC_BIN}" "${_PROBE_DIR}/probe.c" "${_PROBE_DIR}/probe.o" \
+    && echo "PROBE OK step2: guest-driven native cc produced an object" \
+    || echo "PROBE FAIL step2: compile failed -- fault class (A), RESOLUTION"
+
+  # Step 3 -- LINK an executable. Forces collect2/ld on top of step 2.
+  ${QEMU_EXECVE} ${PYTHON} -c \
+    'import subprocess, sys; subprocess.check_call([sys.argv[1], sys.argv[2], "-o", sys.argv[3]])' \
+    "${_CC_BIN}" "${_PROBE_DIR}/probe.c" "${_PROBE_DIR}/probe_exe" \
+    && echo "PROBE OK step3: guest-driven native cc linked an executable" \
+    || echo "PROBE FAIL step3: link failed -- fault class (A), RESOLUTION"
+
+  # Confirm what was actually produced, so a green step2/step3 cannot be
+  # mistaken for a driver that silently emitted host-arch output.
+  file "${_PROBE_DIR}/probe_exe" 2>/dev/null || echo "PROBE note: 'file' unavailable"
+
+  # Step 4 -- the decisive one. The GUEST execs the ppc64le binary it just
+  # built. The guest was launched by qemu-execve, so its own execve is still
+  # intercepted; this should succeed even under fault class (B).
+  ${QEMU_EXECVE} ${PYTHON} -c \
+    'import subprocess, sys; subprocess.check_call([sys.argv[1]])' \
+    "${_PROBE_DIR}/probe_exe" \
+    && echo "PROBE OK step4: guest exec of a fresh ppc64le binary works" \
+    || echo "PROBE FAIL step4: guest cannot exec its own ppc64le output"
+
+  # Step 5 -- the LD_PRELOAD question, isolated. Route the same exec through a
+  # NATIVE intermediary (/bin/sh, taken by passthrough to the host kernel).
+  # step4 OK + step5 FAIL is the signature of fault class (B): interception
+  # survives in the guest but is lost the moment a native child is handed off.
+  ${QEMU_EXECVE} ${PYTHON} -c \
+    'import subprocess, sys; subprocess.check_call(["/bin/sh", "-c", "exec \"$0\"", sys.argv[1]])' \
+    "${_PROBE_DIR}/probe_exe" \
+    && echo "PROBE OK step5: native child can exec a ppc64le binary (no shim needed)" \
+    || echo "PROBE FAIL step5: fault class (B), FOREIGN EXEC BELOW HANDOFF -- qemu-execve needs an LD_PRELOAD shim"
+
+  rm -rf "${_PROBE_DIR}"
+  unset _PROBE_DIR
+fi
+unset _CC_BIN
+# --- end test_pycc failure triage probe --------------------------------------
+
+# --- unresolved-skip triage block (conda-forge/numba-feedstock#203) -----------
+# The tests whose disposition is still open, run BY NAME and UNSAMPLED on every
+# EMULATED lane. Supersedes the old ppc64le-gated skip audit and the separate
+# fork gate: one block serves both lanes, because what differs per lane is the
+# PATCH SET, not this block.
+#
+#   Lane where 0003/0007 ARE applied (ppc64le): these self-skip, and this block
+#   is an AUDIT -- it proves "skipped", which a --random sampled log otherwise
+#   cannot distinguish from "never drawn".
+#   Lane where they are NOT applied: they may genuinely EXECUTE, which is the
+#   open experiment -- are these QEMU gaps emulation-general, or specific to
+#   QEMU's POWER target?
+#
+# CAVEAT LEARNED THE HARD WAY: "not applied" does NOT guarantee "executes".
+# numba upstream carries @skip_if_linux_aarch64 on test_compile_nrt and
+# TestDistutilsSupport, so on aarch64 those self-skip regardless of our patches
+# and this lane CANNOT answer the 0007 question at all. Read the verdicts below
+# literally -- SKIPPED is inconclusive, not evidence.
+_triage_verdict() {
+  # $1 label, $2 note-if-passed, rest = command to run.
+  # A unittest run exits 0 in THREE distinct ways and only one is a pass:
+  #   "Ran 0 tests"    -> `-k` matched nothing; the check was vacuous
+  #   "OK (skipped=N)" -> ran, but every selected test self-skipped
+  #   "OK"             -> genuinely executed and passed
+  # Judging by exit status alone conflates all three. An earlier revision of
+  # this block did exactly that and reported four skipped tests as "passed".
+  local _label="$1"; shift
+  local _note="$1"; shift
+  local _out
+  local _rc
+  set +e
+  _out="$("$@" 2>&1)"
+  _rc=$?
+  set -e
+  printf '%s\n' "${_out}"
+  if grep -qE '^Ran 0 tests' <<<"${_out}"; then
+    _TRIAGE_LAST="NOTHING_SELECTED"
+    echo "TRIAGE NOTHING_SELECTED: ${_label} -- pattern matched no test, INCONCLUSIVE (upstream rename?)"
+  elif grep -qE '^OK \(skipped=' <<<"${_out}"; then
+    _TRIAGE_LAST="SKIPPED"
+    echo "TRIAGE SKIPPED: ${_label} -- INCONCLUSIVE, did not execute. Reason(s):"
+    grep -oE "skipped '[^']*'" <<<"${_out}" | sort -u | sed 's/^/  /'
+  elif [[ ${_rc} -eq 0 ]]; then
+    _TRIAGE_LAST="PASSED"
+    echo "TRIAGE PASSED: ${_label} -- ${_note}"
+  else
+    _TRIAGE_LAST="FAILED"
+    echo "TRIAGE FAILED: ${_label} -- the gap DOES reproduce on this target"
+  fi
+}
+
+if [[ -n "${QEMU_EXECVE:-}" ]]; then
+  echo "TRIAGE: unresolved skip candidates (0003, 0007) + build-7 fork gate -- #203"
+  _TRIAGE_LAST=""
+
+  _triage_verdict "test_unique (0003)" \
+    "gap does NOT reproduce here; 0003 unjustified on this target" \
+    ${QEMU_EXECVE} ${PYTHON} -m unittest -v -k test_unique \
+    numba.tests.test_array_methods
+
+  _triage_verdict "test_compile_nrt (0007)" \
+    "gap does NOT reproduce here; 0007 unjustified on this target" \
+    ${QEMU_EXECVE} ${PYTHON} -m unittest -v -k test_compile_nrt \
+    numba.tests.test_pycc
+
+  _triage_verdict "TestDistutilsSupport (0007)" \
+    "gap does NOT reproduce here; 0007 class skip unjustified on this target" \
+    ${QEMU_EXECVE} ${PYTHON} -m unittest -v \
+    numba.tests.test_pycc.TestDistutilsSupport
+
+  # FATAL -- the build-7 fork fix gate. Patch 0004 was retired on the strength
+  # of qemu-execve build 7, so anything other than a GENUINE pass must stop the
+  # lane: a skip or a zero-match here would leave 0004's removal unverified,
+  # which is indistinguishable from a silent regression.
+  _triage_verdict "fork gate (qemu-execve >=7)" \
+    "build-7 fork fix confirmed; 0004 stays retired" \
+    $SEGVCATCH ${QEMU_EXECVE} ${PYTHON} -m unittest -v \
+    -k test_workqueue_handles_fork_from_non_main_thread \
+    numba.tests.test_parallel_backend
+  if [[ "${_TRIAGE_LAST}" != "PASSED" ]]; then
+    echo "TRIAGE FATAL: fork gate verdict was ${_TRIAGE_LAST}, not PASSED -- restore patch 0004"
+    exit 1
+  fi
+fi
+
+# LOCAL DIAGNOSTIC MODE. Stop here, before the expensive forefronted blocks and
+# the full --random suite. CI never sets NUMBA_CF_TRIAGE, and recipe.yaml
+# defaults it to "0", so CI behaviour is completely unchanged. Placing this exit
+# early means nothing below needs its own opt-out.
+if [[ "${NUMBA_CF_TRIAGE:-0}" == "1" ]]; then
+  echo "TRIAGE: NUMBA_CF_TRIAGE=1 -- stopping before the full test suite"
+  exit 0
+fi
+# --- end unresolved-skip triage block ----------------------------------------
 
 # --- forefronted known-red tests, ALL platforms (conda-forge/numba-feedstock#203)
 # Mirror of the win_64 block in run_test.bat lines 31-36, extended to every unix
@@ -114,36 +289,7 @@ if [[ "${target_platform:-}" == "linux-ppc64le" ]]; then
 fi
 # ------------------------------------------------------------------------------
 
-# --- ppc64le QEMU-artifact skip audit (conda-forge/numba-feedstock#192) -------
-# Patches 0003, 0004, and 0007 SKIP three tests that are QEMU/TCG emulation
-# artifacts, not numba defects. Because nothing runs them by name, a test that
-# is skipped and a test the sampled --random slice simply never drew look
-# IDENTICAL in the log -- both are just absent. That ambiguity cost real
-# triage time in conda-forge/numba-feedstock#201.
-#
-# This block resolves the ambiguity by naming all three explicitly, so every
-# run states their status in the log rather than leaving it implicit. It is
-# an AUDIT, not a value regression test: patch application already fails the
-# build outright if a target method vanishes upstream. What this adds is
-# visibility, detection of upstream method renames, and a standing trigger to
-# revisit these skips if the underlying QEMU gap is ever fixed, instead of
-# silently inheriting them forever.
-#
-# Stock `unittest -k` is used here rather than `numba.runtests <dotted.name>`
-# because the skip patches match on METHOD NAME only -- the enclosing class
-# names are not pinned anywhere else in this recipe -- so `-k` avoids
-# hardcoding a class name upstream could refactor away. These tests are
-# expected to SKIP, so they never execute a body and do not need
-# numba.runtests' harness. Note 0004's real target is
-# test_workqueue_handles_fork_from_non_main_thread; test_workqueue_fork is
-# only the patch filename.
-if [[ "${target_platform:-}" == "linux-ppc64le" ]]; then
-  echo "AUDIT: ppc64le QEMU-artifact skips (patches 0003, 0004, 0007) -- #192"
-  ${QEMU_EXECVE} ${PYTHON} -m unittest -v -k test_unique numba.tests.test_array_methods
-  ${QEMU_EXECVE} ${PYTHON} -m unittest -v -k test_workqueue_handles_fork_from_non_main_thread numba.tests.test_parallel_backend
-  ${QEMU_EXECVE} ${PYTHON} -m unittest -v -k test_compile_nrt numba.tests.test_pycc
-fi
-# --- end ppc64le QEMU-artifact skip audit --------------------------------------
+
 
 TEST_NPROCS="${CPU_COUNT}"
 FAST_TESTS="${FAST_TESTS:-0}"

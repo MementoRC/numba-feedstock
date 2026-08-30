@@ -1,32 +1,24 @@
 --- a/numba/tests/test_pycc.py
 +++ b/numba/tests/test_pycc.py
-@@ -1,6 +1,7 @@
- import contextlib
- import importlib
- import os
-+import platform
- import shutil
- import subprocess
- import sys
-@@ -30,6 +31,14 @@
- 
+@@ -30,6 +30,14 @@
+
  base_path = os.path.dirname(os.path.abspath(__file__))
- 
-+# ppc64le is the emulation-affected architecture on conda-forge's CI, but the
-+# same QEMU user-mode emulation gap also shows up when ppc64le is emulated on
-+# a non-ppc64le host (e.g. QEMU_EXECVE set for cross-testing) -- see
-+# conda-forge/numba-feedstock#192.
-+_NUMBA_CF_EMULATED = (
-+    platform.machine() == "ppc64le" or bool(os.environ.get("QEMU_EXECVE"))
-+)
+
++# Emulation on this feedstock is ALWAYS supplied explicitly via qemu-execve
++# and never via kernel binfmt_misc, so a non-empty QEMU_EXECVE is the exact
++# and complete emulation predicate. Deliberately NOT keyed on
++# platform.machine() == "ppc64le": that tests ARCHITECTURE, not emulation,
++# and would skip these tests on a genuine NATIVE POWER build where none of
++# the QEMU gaps below can occur. See conda-forge/numba-feedstock#192.
++_NUMBA_CF_EMULATED = bool(os.environ.get("QEMU_EXECVE"))
 +
- 
+
  def unset_macosx_deployment_target():
      """Unset MACOSX_DEPLOYMENT_TARGET because we are not building portable
-@@ -229,6 +238,13 @@
+@@ -229,6 +237,13 @@
                  """ % {'expected': expected}
              self.check_cc_compiled_in_subprocess(lib, code)
- 
+
 +    @unittest.skipIf(
 +        _NUMBA_CF_EMULATED,
 +        "pycc AOT-compiled machine code hits an illegal instruction under "
@@ -37,7 +29,7 @@
      def test_compile_nrt(self):
          with self.check_cc_compiled(self._test_module.cc_nrt) as lib:
              # Sanity check
-@@ -571,6 +587,15 @@
+@@ -571,6 +586,15 @@
  @skip_if_py313plus_on_windows
  @skip_if_linux_aarch64
  @skip_if_freethreading
@@ -51,5 +43,5 @@
 +    "conda-forge/numba-feedstock#192.",
 +)
  class TestDistutilsSupport(TestCase):
- 
+
      def setUp(self):

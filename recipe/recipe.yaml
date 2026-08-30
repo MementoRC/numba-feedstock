@@ -14,57 +14,15 @@ source:
   url: https://pypi.org/packages/source/${{ name[0] }}/${{ name }}/${{ name }}-${{ version }}.tar.gz
   sha256: ${{ sha256 }}
   patches:
-    # Adds the `signext` attribute to numba_ldexp{,f}'s integer exponent
-    # argument. ELFv2 requires sub-doubleword integer arguments to be extended
-    # per their C type; an unannotated LLVM i32 is zero-extended, which corrupts
-    # negative exponents at the JIT -> C helper boundary on ppc64le. Applies on
-    # every platform since it only annotates an existing declaration.
-    # Adopted from main, replacing rc's earlier
-    # 0001-ppc64le-abi-workaround-ldexp-frexp.patch: same bug, refined fix, and
-    # unlike rc's it also covers the np.ldexp declaration site.
     - patches/0001-ppc64le-ldexp-signext.patch
     - patches/0002-configurable-random-test-seed.patch
-    # test_unique, test_workqueue_handles_fork_from_non_main_thread, and
-    # TestDistutilsSupport (incl. test_compile_nrt) hit known QEMU user-mode
-    # emulation gaps -- JIT-execution-path divergence, a plugin assertion
-    # crash under fork(2), and illegal-instruction faults in AOT-compiled
-    # machine code / setup.py-driven pycc builds, respectively -- not
-    # numba/LLVM defects. These skips are gated on emulation itself (native
-    # ppc64le OR QEMU_EXECVE set for cross-testing), not on the ppc64le
-    # platform selector, so 0003/0004/0007 apply unconditionally on every
-    # platform and self-skip only when actually running under emulation --
-    # see conda-forge/numba-feedstock#192.
-    - patches/0003-skip-test_unique-on-ppc64le.patch
-    - patches/0004-skip-test_workqueue_fork-on-ppc64le.patch
-    - patches/0007-skip-test_compile_nrt-on-ppc64le.patch
-    # test_linalg_lstsq is nondeterministic by nature: numba's lstsq checks
-    # for infs/NaN BEFORE checking emptiness, so for the "check empty arrays"
-    # cases -- where one of A/b is an empty shape but the OTHER is a valid,
-    # non-empty shape -- np.empty() on the non-empty side returns
-    # uninitialized memory that can happen to contain NaN/Inf garbage. That
-    # garbage nondeterministically decides which LinAlgError path/message
-    # fires, producing the FAIL/PASS/FAIL flakiness observed on win_64
-    # (recorded known-red on win_64 py3.11 and py3.14t). 0008 switches both
-    # np.empty() calls to np.zeros() so the non-empty side is always
-    # deterministically zero and the NaN/Inf check can never spuriously
-    # trigger -- see conda-forge/numba-feedstock#203. This also makes the
-    # forefronted test_linalg_lstsq probe in run_test.sh a real regression
-    # guard instead of just a diagnostic; that probe is left in place
-    # unconditionally as a permanent audit.
     - patches/0008-fix-test_linalg_lstsq-empty-array-nondeterminism.patch
-    # 0005 and 0006 are genuine ppc64le LLVM codegen-expectation fixes, not
-    # emulation-artifact skips, so unlike 0003/0004/0007 they stay gated on
-    # the ppc64le platform selector rather than on emulation.
-    # test_array_const_alignment expects the float32 array constant as its own
-    # `constant [24 x i8] ..., align 4` global; on ppc64le LLVM's GlobalMerge
-    # pass folds the module constants into a single @_MergedGlobals struct
-    # (align 16), so 0006 makes the check platform-aware -- assert the [24 x i8]
-    # array element is present and the alignment is sufficient (>= 4) -- rather
-    # than skipping -- see conda-forge/numba-feedstock#192.
     - if: ppc64le
       then:
+        - patches/0003-skip-test_unique-on-ppc64le.patch
         - patches/0005-fix-test_inlining_global_dispatcher-bb-count-on-ppc64le.patch
         - patches/0006-fix-test_array_const_alignment-globalmerge-on-ppc64le.patch
+        - patches/0007-skip-test_compile_nrt-on-ppc64le.patch
 
 build:
   number: ${{ build_number }}
@@ -171,6 +129,7 @@ tests:
         build_platform: ${{ build_platform }}
         target_platform: ${{ target_platform }}
         flow_run_id: ${{ env.get("flow_run_id", default="0") }}
+        NUMBA_CF_TRIAGE: ${{ env.get("NUMBA_CF_TRIAGE", default="0") }}
         python_version: ${{ python }}
     files:
       recipe:
@@ -186,7 +145,7 @@ tests:
             # at test time too -- see conda-forge/numba-feedstock#201.
             - ${{ compiler('cxx') }}
             - bash >=5.2
-            - qemu-execve-${{ target_platform | replace("linux-64", "x86_64") | replace("linux-", "") }} [version=">=11", build_number=">=5"]
+            - qemu-execve-${{ target_platform | replace("linux-64", "x86_64") | replace("linux-", "") }} [version=">=11", build_number=">=7"]
       run:
         - ${{ compiler('c') }}
         - ${{ compiler('cxx') }}
