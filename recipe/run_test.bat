@@ -14,7 +14,7 @@ if errorlevel 1 exit /b 1
 
 @rem Vary which subset of tests --random selects across CI runs/architectures
 @rem instead of always sampling the same fixed subset (numba's own default
-@rem random_seed is a hardcoded 42 -- see recipe/patches/0002-...). python_version
+@rem random_seed is a hardcoded 42 -- see recipe/patches/configurable-random-test-seed.patch). python_version
 @rem is folded in so that different python-version jobs building for the same
 @rem target_platform within one CI run (same flow_run_id) get different, non-
 @rem overlapping ~15%% samples instead of all re-testing the identical subset.

@@ -14,15 +14,15 @@ source:
   url: https://pypi.org/packages/source/${{ name[0] }}/${{ name }}/${{ name }}-${{ version }}.tar.gz
   sha256: ${{ sha256 }}
   patches:
-    - patches/0001-ppc64le-ldexp-signext.patch
-    - patches/0002-configurable-random-test-seed.patch
-    - patches/0008-fix-test_linalg_lstsq-empty-array-nondeterminism.patch
+    - patches/ppc64le-ldexp-signext.patch
+    - patches/configurable-random-test-seed.patch
+    - patches/fix-test_linalg_lstsq-empty-array-nondeterminism.patch
     - if: ppc64le
       then:
-        - patches/0003-skip-test_unique-on-ppc64le.patch
-        - patches/0005-fix-test_inlining_global_dispatcher-bb-count-on-ppc64le.patch
-        - patches/0006-fix-test_array_const_alignment-globalmerge-on-ppc64le.patch
-        - patches/0007-skip-test_compile_nrt-on-ppc64le.patch
+        - patches/skip-test_unique-on-ppc64le.patch
+        - patches/fix-test_inlining_global_dispatcher-bb-count-on-ppc64le.patch
+        - patches/fix-test_array_const_alignment-globalmerge-on-ppc64le.patch
+        - patches/skip-test_compile_nrt-on-ppc64le.patch
 
 build:
   number: ${{ build_number }}
@@ -130,6 +130,9 @@ tests:
         target_platform: ${{ target_platform }}
         flow_run_id: ${{ env.get("flow_run_id", default="0") }}
         NUMBA_CF_TRIAGE: ${{ env.get("NUMBA_CF_TRIAGE", default="0") }}
+        NUMBA_CF_RUN_SKIPPED: ${{ env.get("NUMBA_CF_RUN_SKIPPED", default="0") }}
+        NUMBA_CF_DIAG: ${{ env.get("NUMBA_CF_DIAG", default="0") }}
+        NUMBA_CF_REPRO: ${{ env.get("NUMBA_CF_REPRO", default="0") }}
         python_version: ${{ python }}
     files:
       recipe:

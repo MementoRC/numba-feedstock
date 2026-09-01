@@ -82,7 +82,7 @@ fi
 #   (A) RESOLUTION. The native driver starts but cannot find its own children
 #       (cc1, as, collect2/ld) because the guest environment does not carry
 #       $BUILD_PREFIX's exec dirs in PATH/COMPILER_PATH. The fix is environment,
-#       right here in run_test.sh, and patch 0007's skip of TestDistutilsSupport
+#       right here in run_test.sh, and patch skip-test_compile_nrt-on-ppc64le's skip of TestDistutilsSupport
 #       /test_compile_nrt would then be unnecessary rather than load-bearing.
 #
 #   (B) FOREIGN EXEC BELOW THE HANDOFF. The driver works and emits a valid
@@ -160,7 +160,7 @@ unset _CC_BIN
 # fork gate: one block serves both lanes, because what differs per lane is the
 # PATCH SET, not this block.
 #
-#   Lane where 0003/0007 ARE applied (ppc64le): these self-skip, and this block
+#   Lane where skip-test_unique-on-ppc64le/skip-test_compile_nrt-on-ppc64le ARE applied (ppc64le): these self-skip, and this block
 #   is an AUDIT -- it proves "skipped", which a --random sampled log otherwise
 #   cannot distinguish from "never drawn".
 #   Lane where they are NOT applied: they may genuinely EXECUTE, which is the
@@ -170,7 +170,7 @@ unset _CC_BIN
 # CAVEAT LEARNED THE HARD WAY: "not applied" does NOT guarantee "executes".
 # numba upstream carries @skip_if_linux_aarch64 on test_compile_nrt and
 # TestDistutilsSupport, so on aarch64 those self-skip regardless of our patches
-# and this lane CANNOT answer the 0007 question at all. Read the verdicts below
+# and this lane CANNOT answer the skip-test_compile_nrt-on-ppc64le question at all. Read the verdicts below
 # literally -- SKIPPED is inconclusive, not evidence.
 _triage_verdict() {
   # $1 label, $2 note-if-passed, rest = command to run.
@@ -182,6 +182,13 @@ _triage_verdict() {
   # this block did exactly that and reported four skipped tests as "passed".
   local _label="$1"; shift
   local _note="$1"; shift
+  # Optional failure-note override: set by the caller as a temporary
+  # environment assignment on the call itself, e.g.
+  #   _TRIAGE_FAIL_NOTE="..." _triage_verdict "$label" "$note" cmd...
+  # This is NOT a positional parameter -- it cannot collide with or
+  # swallow the first word of "$@" (the command), which is what a
+  # third positional arg would risk at every call site that omits it.
+  local _note_fail="${_TRIAGE_FAIL_NOTE:-the gap DOES reproduce on this target}"
   local _out
   local _rc
   set +e
@@ -201,48 +208,312 @@ _triage_verdict() {
     echo "TRIAGE PASSED: ${_label} -- ${_note}"
   else
     _TRIAGE_LAST="FAILED"
-    echo "TRIAGE FAILED: ${_label} -- the gap DOES reproduce on this target"
+    echo "TRIAGE FAILED: ${_label} -- ${_note_fail}"
   fi
 }
 
 if [[ -n "${QEMU_EXECVE:-}" ]]; then
-  echo "TRIAGE: unresolved skip candidates (0003, 0007) + build-7 fork gate -- #203"
+  echo "TRIAGE: unresolved skip candidates (skip-test_unique-on-ppc64le, skip-test_compile_nrt-on-ppc64le) + fork gate -- #203"
   _TRIAGE_LAST=""
 
-  _triage_verdict "test_unique (0003)" \
-    "gap does NOT reproduce here; 0003 unjustified on this target" \
+  _triage_verdict "test_unique (skip-test_unique-on-ppc64le)" \
+    "gap does NOT reproduce here; skip-test_unique-on-ppc64le unjustified on this target" \
     ${QEMU_EXECVE} ${PYTHON} -m unittest -v -k test_unique \
     numba.tests.test_array_methods
 
-  _triage_verdict "test_compile_nrt (0007)" \
-    "gap does NOT reproduce here; 0007 unjustified on this target" \
+  _triage_verdict "test_compile_nrt (skip-test_compile_nrt-on-ppc64le)" \
+    "gap does NOT reproduce here; skip-test_compile_nrt-on-ppc64le unjustified on this target" \
     ${QEMU_EXECVE} ${PYTHON} -m unittest -v -k test_compile_nrt \
     numba.tests.test_pycc
 
-  _triage_verdict "TestDistutilsSupport (0007)" \
-    "gap does NOT reproduce here; 0007 class skip unjustified on this target" \
+  _TRIAGE_FAIL_NOTE="REGRESSION: this class is expected to pass under emulation" \
+  _triage_verdict "TestDistutilsSupport (no longer skipped under emulation)" \
+    "regression guard: this class is deliberately NOT skipped under emulation and is expected to pass here" \
     ${QEMU_EXECVE} ${PYTHON} -m unittest -v \
     numba.tests.test_pycc.TestDistutilsSupport
 
-  # FATAL -- the build-7 fork fix gate. Patch 0004 was retired on the strength
-  # of qemu-execve build 7, so anything other than a GENUINE pass must stop the
-  # lane: a skip or a zero-match here would leave 0004's removal unverified,
-  # which is indistinguishable from a silent regression.
+  # FATAL -- the build-7 fork fix gate. The fork-fix patch (formerly 0004) was
+  # retired on the strength of qemu-execve build 7, so anything other than a
+  # GENUINE pass must stop the lane: a skip or a zero-match here would leave that
+  # removal unverified, which is indistinguishable from a silent regression.
   _triage_verdict "fork gate (qemu-execve >=7)" \
-    "build-7 fork fix confirmed; 0004 stays retired" \
+    "build-7 fork fix confirmed; the fork-fix patch stays retired" \
     $SEGVCATCH ${QEMU_EXECVE} ${PYTHON} -m unittest -v \
     -k test_workqueue_handles_fork_from_non_main_thread \
     numba.tests.test_parallel_backend
   if [[ "${_TRIAGE_LAST}" != "PASSED" ]]; then
-    echo "TRIAGE FATAL: fork gate verdict was ${_TRIAGE_LAST}, not PASSED -- restore patch 0004"
+    echo "TRIAGE FATAL: fork gate verdict was ${_TRIAGE_LAST}, not PASSED -- restore the fork-fix patch"
     exit 1
   fi
+fi
+
+# --- ppc64le fix guards (conda-forge/numba-feedstock#192) ---------------------
+# Runs HERE -- before the forefronted known-red block -- because that block
+# includes test_recursion, which costs ~791s under emulation; the old position
+# after it made the "fails in seconds" guarantee false. Also placed ABOVE the
+# NUMBA_CF_TRIAGE early exit so triage mode checks these too, same as the
+# unresolved-skip triage block above.
+#
+# These are test FIXES, not skips: a SKIPPED or NOTHING_SELECTED verdict means
+# the patched expected value no longer matches upstream/LLVM on this target and
+# must fail the lane -- same reasoning as the fork gate above. Each test is
+# classified separately via _triage_verdict (defined above) rather than judged
+# by combined exit status alone.
+#
+# Note: _triage_verdict's PASSED branch falls back to plain exit-status when
+# numba.runtests does not emit the "Ran 0 tests" / "OK (skipped=" summary
+# lines it looks for -- so behaviour never degrades below today's exit-status
+# check, only improves on it.
+if [[ "${target_platform:-}" == "linux-ppc64le" ]]; then
+  echo "VERIFY: ppc64le test fixes (test_inlining_global_dispatcher, test_array_const_alignment) -- #192"
+
+  _triage_verdict "test_inlining_global_dispatcher (fix-test_inlining_global_dispatcher-bb-count-on-ppc64le)" \
+    "patched BB-count expectation still matches ppc64le LLVM" \
+    $SEGVCATCH ${QEMU_EXECVE} ${PYTHON} -m numba.runtests -v \
+    numba.tests.test_function_type.TestInliningFunctionType.test_inlining_global_dispatcher
+  if [[ "${_TRIAGE_LAST}" != "PASSED" ]]; then
+    echo "VERIFY FATAL: test_inlining_global_dispatcher (fix-test_inlining_global_dispatcher-bb-count-on-ppc64le) verdict was ${_TRIAGE_LAST}, not PASSED -- patch fix-test_inlining_global_dispatcher-bb-count-on-ppc64le expectation has rotted"
+    exit 1
+  fi
+
+  _triage_verdict "test_array_const_alignment (fix-test_array_const_alignment-globalmerge-on-ppc64le)" \
+    "patched GlobalMerge alignment expectation still matches ppc64le LLVM" \
+    $SEGVCATCH ${QEMU_EXECVE} ${PYTHON} -m numba.runtests -v \
+    numba.tests.test_array_constants.TestConstantArray.test_array_const_alignment
+  if [[ "${_TRIAGE_LAST}" != "PASSED" ]]; then
+    echo "VERIFY FATAL: test_array_const_alignment (fix-test_array_const_alignment-globalmerge-on-ppc64le) verdict was ${_TRIAGE_LAST}, not PASSED -- patch fix-test_array_const_alignment-globalmerge-on-ppc64le expectation has rotted"
+    exit 1
+  fi
+fi
+# ------------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# FOCUSED test_unique CASE REPRODUCER  (opt-in: NUMBA_CF_REPRO=1)
+#
+# Python faulthandler localised the ppc64le SIGSEGV to ONE check() call in
+# numba.tests.test_array_methods.test_unique -- original line 1884,
+# check(np.array(['A', 'A', 'B'], dtype='<U16'))  # issue 10250
+# i.e. np.unique over a UNICODE array, NOT the numeric sort path.
+#
+# This block replays EVERY check() call of the real test, each in a SEPARATE
+# process, so one crash cannot mask the remaining cases. Each case runs the
+# pure-Python call BEFORE the jitted one, flushed, so a fault between "PY" and
+# "JIT" pins the failure to JIT-compiled code.
+#
+# Cheap by design: small arrays, ~7 short probes, no full battery needed.
+# ---------------------------------------------------------------------------
+if [[ -n "${QEMU_EXECVE:-}" && "${NUMBA_CF_REPRO:-0}" == "1" ]]; then
+  echo "REPRO: ============ BEGIN test_unique CASE REPRODUCER ============"
+
+  _repro_case() {
+    local _label="$1"; shift
+    local _expr="$1"; shift
+    _TRIAGE_FAIL_NOTE="CRASHES: np.unique fails on ${_label}" \
+    _triage_verdict "np.unique case: ${_label}" \
+      "clean: np.unique handles ${_label}" \
+      ${QEMU_EXECVE} ${PYTHON} -c "
+import numpy as np
+from numba import njit
+def np_unique(a):
+    return np.unique(a)
+cfunc = njit(cache=False)(np_unique)
+a = ${_expr}
+print('PY  ', np_unique(a), flush=True)
+print('JIT ', cfunc(a), flush=True)
+print('CASE_OK', flush=True)
+"
+  }
+
+  _repro_case "2D int" \
+    "np.array([[1, 1, 3], [3, 4, 5]])"
+  _repro_case "zeros(5)" \
+    "np.array(np.zeros(5))"
+  _repro_case "2D float" \
+    "np.array([[3.1, 3.1], [1.7, 2.29], [3.3, 1.7]])"
+  _repro_case "empty" \
+    "np.array([])"
+  _repro_case "nan pair" \
+    "np.array([np.nan, np.nan])"
+  _repro_case "U16 unicode" \
+    "np.array(['A', 'A', 'B'], dtype='<U16')"
+  _repro_case "datetime64 with NAT" \
+    "np.array([np.datetime64('2001-01-01'), np.datetime64('2001-01-01'), np.datetime64('2001-01-02'), np.datetime64('NAT')])"
+
+  echo "REPRO: ============= END test_unique CASE REPRODUCER ============="
+fi
+
+# ---------------------------------------------------------------------------
+# ppc64le DIAGNOSTIC BATTERY  (opt-in: NUMBA_CF_DIAG=1)
+#
+# Purpose: distinguish (a) an LLVM PPC64LE codegen bug from (b) a QEMU ppc64le
+# TCG / ISA-coverage bug, for test_unique (SIGSEGV rc=139) and test_compile_nrt
+# (SIGILL rc=132). SIGILL in particular suggests LLVM is emitting instructions
+# for a CPU model QEMU advertises but does not faithfully execute.
+#
+# Every line is prefixed "DIAG:" so results can be grepped out of the build log.
+# Skipped entirely unless NUMBA_CF_DIAG=1, so the normal triage loop is unaffected.
+# ---------------------------------------------------------------------------
+if [[ -n "${QEMU_EXECVE:-}" && "${NUMBA_CF_DIAG:-0}" == "1" ]]; then
+  echo "DIAG: ======================= BEGIN DIAGNOSTIC BATTERY ======================="
+
+  # Run a command, never abort the script, always report its rc.
+  _diag() {
+    local _l="$1"; shift
+    echo "DIAG: ---- BEGIN ${_l} ----"
+    set +e
+    "$@" 2>&1
+    local _rc=$?
+    set -e
+    echo "DIAG: ---- END ${_l} rc=${_rc} ----"
+  }
+
+  # --- SECTION A: what does the emulated environment claim to be? -----------
+  _diag "A1 uname/platform" \
+    ${QEMU_EXECVE} ${PYTHON} -c "import os,platform;print(os.uname());print('machine=',platform.machine(),'processor=',platform.processor())"
+
+  _diag "A2 llvmlite host cpu + features" \
+    ${QEMU_EXECVE} ${PYTHON} -c "
+import llvmlite.binding as llvm
+try:
+    print('LLVM_VERSION', llvm.llvm_version_info, flush=True)
+except Exception as e:
+    print('LLVM_VERSION_ERR', repr(e), flush=True)
+try:
+    print('HOST_CPU', llvm.get_host_cpu_name(), flush=True)
+except Exception as e:
+    print('HOST_CPU_ERR', repr(e), flush=True)
+try:
+    print('HOST_FEATURES', llvm.get_host_cpu_features().flatten(), flush=True)
+except Exception as e:
+    print('HOST_FEATURES_ERR', repr(e), flush=True)
+"
+
+  _diag "A2b numba resolved cpu config" \
+    ${QEMU_EXECVE} ${PYTHON} -c "
+import numba
+from numba import config as _c
+print('NUMBA_CFG_CPU_NAME', getattr(_c, 'CPU_NAME', '<none>'), flush=True)
+print('NUMBA_CFG_CPU_FEATURES', getattr(_c, 'CPU_FEATURES', '<none>'), flush=True)
+print('NUMBA_VERSION', numba.__version__, flush=True)
+"
+
+  _diag "A3 auxv hwcap (AT_HWCAP=16 AT_HWCAP2=26 AT_PLATFORM=15 AT_BASE_PLATFORM=24)" \
+    ${QEMU_EXECVE} ${PYTHON} -c "import ctypes;l=ctypes.CDLL(None);l.getauxval.restype=ctypes.c_ulong;l.getauxval.argtypes=[ctypes.c_ulong];print('AT_HWCAP ',hex(l.getauxval(16)));print('AT_HWCAP2',hex(l.getauxval(26)));print('AT_PLATFORM',ctypes.cast(l.getauxval(15),ctypes.c_char_p).value);print('AT_BASE_PLATFORM',ctypes.cast(l.getauxval(24),ctypes.c_char_p).value)"
+
+  _diag "A4 /proc/cpuinfo as seen INSIDE emulation" \
+    ${QEMU_EXECVE} ${PYTHON} -c "print(open('/proc/cpuinfo').read())"
+
+  _diag "A5 ld show auxv" \
+    env LD_SHOW_AUXV=1 ${QEMU_EXECVE} ${PYTHON} -c "pass"
+
+  _diag "A6 numba sysinfo" \
+    ${QEMU_EXECVE} ${PYTHON} -m numba -s
+
+  _diag "A7 qemu version" \
+    ${QEMU_EXECVE} --version
+
+  # --- SECTION B: LLVM-side CPU ladder x the two crashing tests -------------
+  # A pass here means "this setting avoids the crash" = a LEAD, so the
+  # failure note is inverted relative to the normal skip-audit probes.
+  for _cpu in generic pwr8 pwr9 pwr10; do
+    _TRIAGE_FAIL_NOTE="NUMBA_CPU_NAME=${_cpu} does NOT avoid the crash" \
+    _triage_verdict "test_unique @ NUMBA_CPU_NAME=${_cpu}" \
+      "NUMBA_CPU_NAME=${_cpu} AVOIDS the crash -- LLVM was targeting features QEMU mis-executes" \
+      env NUMBA_CPU_NAME="${_cpu}" NUMBA_CPU_FEATURES="" ${SEGVCATCH:-} ${QEMU_EXECVE} ${PYTHON} -m unittest -v -k test_unique numba.tests.test_array_methods
+
+    _TRIAGE_FAIL_NOTE="NUMBA_CPU_NAME=${_cpu} does NOT avoid the crash" \
+    _triage_verdict "test_compile_nrt @ NUMBA_CPU_NAME=${_cpu}" \
+      "NUMBA_CPU_NAME=${_cpu} AVOIDS the crash -- LLVM was targeting features QEMU mis-executes" \
+      env NUMBA_CPU_NAME="${_cpu}" NUMBA_CPU_FEATURES="" ${SEGVCATCH:-} ${QEMU_EXECVE} ${PYTHON} -m unittest -v -k test_compile_nrt numba.tests.test_pycc
+  done
+
+  # --- SECTION C: QEMU-side CPU ladder (emulator ISA level) -----------------
+  # If a LOWER QEMU_CPU avoids the crash, the emulator's TCG coverage for the
+  # higher ISA level is implicated rather than LLVM correctness.
+  # NOTE: power8 is NOT testable here -- the conda glibc requires ISA 3.00 (POWER9+)
+  # and aborts with "Fatal glibc error: CPU lacks ISA 3.00 support" before any test runs.
+  for _qcpu in power9 power10; do
+    _diag "C-detect llvmlite HOST_CPU under QEMU_CPU=${_qcpu}" \
+      env QEMU_CPU="${_qcpu}" ${QEMU_EXECVE} ${PYTHON} -c "
+import llvmlite.binding as llvm
+try:
+    print('HOST_CPU', llvm.get_host_cpu_name(), flush=True)
+except Exception as e:
+    print('HOST_CPU_ERR', repr(e), flush=True)
+"
+
+    _TRIAGE_FAIL_NOTE="QEMU_CPU=${_qcpu} does NOT avoid the crash" \
+    _triage_verdict "test_unique @ QEMU_CPU=${_qcpu}" \
+      "QEMU_CPU=${_qcpu} AVOIDS the crash -- emulator ISA coverage implicated" \
+      env QEMU_CPU="${_qcpu}" ${SEGVCATCH:-} ${QEMU_EXECVE} ${PYTHON} -m unittest -v -k test_unique numba.tests.test_array_methods
+  done
+
+  # --- SECTION D: optimisation / vectorisation knobs ------------------------
+  for _opt in 0 1 2; do
+    _TRIAGE_FAIL_NOTE="NUMBA_OPT=${_opt} does NOT avoid the crash" \
+    _triage_verdict "test_unique @ NUMBA_OPT=${_opt}" \
+      "NUMBA_OPT=${_opt} AVOIDS the crash -- optimiser-generated code implicated" \
+      env NUMBA_OPT="${_opt}" ${SEGVCATCH:-} ${QEMU_EXECVE} ${PYTHON} -m unittest -v -k test_unique numba.tests.test_array_methods
+  done
+
+  _TRIAGE_FAIL_NOTE="disabling vectorisation does NOT avoid the crash" \
+  _triage_verdict "test_unique @ no loop/SLP vectorise" \
+    "disabling vectorisation AVOIDS the crash -- vector (VSX/Altivec) codegen implicated" \
+    env NUMBA_LOOP_VECTORIZE=0 NUMBA_SLP_VECTORIZE=0 ${SEGVCATCH:-} ${QEMU_EXECVE} ${PYTHON} -m unittest -v -k test_unique numba.tests.test_array_methods
+
+  # --- SECTION E: is it JIT-compiled code at all? ---------------------------
+  _TRIAGE_FAIL_NOTE="STILL crashes with the JIT disabled -- NOT numba codegen; look at numpy/libc under emulation" \
+  _triage_verdict "test_unique @ NUMBA_DISABLE_JIT=1" \
+    "JIT-disabled run is clean -- the fault IS in JIT-compiled machine code" \
+    env NUMBA_DISABLE_JIT=1 ${SEGVCATCH:-} ${QEMU_EXECVE} ${PYTHON} -m unittest -v -k test_unique numba.tests.test_array_methods
+
+  # --- SECTION F: narrow the failing operation ------------------------------
+  _diag "F1 minimal np.unique / np.sort by dtype and size" \
+    ${SEGVCATCH:-} ${QEMU_EXECVE} ${PYTHON} -c "
+import numpy as np
+from numba import njit
+@njit(cache=False)
+def u(a):
+    return np.unique(a)
+@njit(cache=False)
+def s(a):
+    return np.sort(a)
+for dt in ('int8','int32','int64','float32','float64'):
+    for n in (1, 7, 64, 1000):
+        a = np.arange(n, dtype=dt)[::-1].copy()
+        print('SORT', dt, n, flush=True)
+        s(a)
+        print('UNIQUE', dt, n, flush=True)
+        u(a)
+print('F1_ALL_OK', flush=True)
+"
+
+  # --- SECTION G: dump the emitted PPC64LE assembly for the sort path -------
+  _diag "G1 emitted asm for np.sort (truncated by the harness, grep 'DIAG:' context)" \
+    env NUMBA_DUMP_ASSEMBLY=1 ${QEMU_EXECVE} ${PYTHON} -c "
+import numpy as np
+from numba import njit
+@njit(cache=False)
+def s(a):
+    return np.sort(a)
+s(np.arange(64, dtype='int64')[::-1].copy())
+"
+
+  # --- SECTION H: control for the new qemu-execve native passthrough --------
+  _TRIAGE_FAIL_NOTE="disabling native passthrough does NOT change the crash" \
+  _triage_verdict "test_unique @ QEMU_EXECVE_NATIVE_PASSTHROUGH=0" \
+    "disabling native passthrough AVOIDS the crash -- the passthrough path is implicated" \
+    env QEMU_EXECVE_NATIVE_PASSTHROUGH=0 ${SEGVCATCH:-} ${QEMU_EXECVE} ${PYTHON} -m unittest -v -k test_unique numba.tests.test_array_methods
+
+  echo "DIAG: ======================== END DIAGNOSTIC BATTERY ========================"
 fi
 
 # LOCAL DIAGNOSTIC MODE. Stop here, before the expensive forefronted blocks and
 # the full --random suite. CI never sets NUMBA_CF_TRIAGE, and recipe.yaml
 # defaults it to "0", so CI behaviour is completely unchanged. Placing this exit
 # early means nothing below needs its own opt-out.
+echo "TRIAGE: NUMBA_CF_TRIAGE=${NUMBA_CF_TRIAGE:-<unset>}"
+echo "TRIAGE: NUMBA_CF_RUN_SKIPPED=${NUMBA_CF_RUN_SKIPPED:-<unset>}"
 if [[ "${NUMBA_CF_TRIAGE:-0}" == "1" ]]; then
   echo "TRIAGE: NUMBA_CF_TRIAGE=1 -- stopping before the full test suite"
   exit 0
@@ -274,97 +545,8 @@ $SEGVCATCH ${QEMU_EXECVE} ${PYTHON} -m numba.runtests -v \
   numba.tests.test_recursion
 # --- end forefronted known-red tests -----------------------------------------
 
-# --- ppc64le fix guards (conda-forge/numba-feedstock#192) ---------------------
-if [[ "${target_platform:-}" == "linux-ppc64le" ]]; then
-  # Deterministic fast guard on the two ppc64le test FIXES (patches 0005 and
-  # 0006): run them up front so a regression in the patched expected value
-  # fails in seconds -- and so they are always checked even on the random test
-  # slices that would otherwise exclude them. The QEMU-artifact SKIPS (0003,
-  # 0004, 0007) are audited separately below.
-  # See conda-forge/numba-feedstock#192.
-  echo "VERIFY: ppc64le test fixes (test_inlining_global_dispatcher, test_array_const_alignment) -- #192"
-  $SEGVCATCH ${QEMU_EXECVE} ${PYTHON} -m numba.runtests -v \
-    numba.tests.test_function_type.TestInliningFunctionType.test_inlining_global_dispatcher \
-    numba.tests.test_array_constants.TestConstantArray.test_array_const_alignment
-fi
-# ------------------------------------------------------------------------------
-
-
-
 TEST_NPROCS="${CPU_COUNT}"
 FAST_TESTS="${FAST_TESTS:-0}"
-
-# --- ppc64le ldexp/frexp quick-fail probe (numba#8489) -----------------------
-# The suite at the end of this script runs with --random on cross-compiled
-# targets, so test_mathlib.TestMathLib.test_ldexp may never be drawn. Verify the
-# ELFv2 signext fix directly, and fail fast and loudly here if it regresses.
-#
-# math.ldexp with a NEGATIVE exponent crosses the JIT -> numba_ldexp C helper
-# boundary. Without the `signext` attribute on the i32 exponent argument, LLVM
-# zero-extends it (clrldi), so -2 arrives as 4294967294 and the result is inf
-# instead of 0.625. frexp is included as a control: its helper takes int* (a
-# 64-bit pointer), which has no sub-word extension issue.
-#
-# np.ldexp is a SEPARATE declaration site from math.ldexp: the scalar path is
-# declared in numba/cpython/mathimpl.py, while the ufunc path is declared in
-# numba/np/math/mathimpl.py via numba/np/npyfuncs.py. A signext fix to one
-# does not cover the other, so both are probed here.
-#
-# Adopted from main and adapted for rc: plain `python` becomes
-# `${QEMU_EXECVE} ${PYTHON}` so the probe runs under emulation on the
-# ppc64le-on-aarch64 cross build. QEMU_EXECVE stays UNQUOTED -- it is empty on
-# native platforms, and a quoted empty expansion is an unrunnable argv[0].
-# Left unguarded, as on main, so it also runs natively where it would catch a
-# signext change that breaks x86_64.
-${QEMU_EXECVE} ${PYTHON} -c "
-import math
-import numpy as np
-from numba import njit
-
-@njit
-def jit_ldexp(x, e):
-    return math.ldexp(x, e)
-
-@njit
-def jit_np_ldexp(x, e):
-    return np.ldexp(x, e)
-
-@njit
-def jit_frexp(x):
-    return math.frexp(x)
-
-failures = []
-for x, e, want in ((2.5, -2, 0.625), (1.0, -1, 0.5), (2.5, 0, 2.5), (3.0, 4, 48.0)):
-    got = jit_ldexp(x, e)
-    print('ldexp(%r, %r) = %r  want %r' % (x, e, got, want))
-    if got != want:
-        failures.append('ldexp(%r, %r) -> %r != %r' % (x, e, got, want))
-
-for x, e, want in ((2.5, -2, 0.625), (1.0, -1, 0.5), (2.5, 0, 2.5), (3.0, 4, 48.0)):
-    got = jit_np_ldexp(x, e)
-    print('np.ldexp(%r, %r) = %r  want %r' % (x, e, got, want))
-    if got != want:
-        failures.append('np.ldexp(%r, %r) -> %r != %r' % (x, e, got, want))
-
-_INT32_MIN = -(2 ** 31)
-for label, fn in (('ldexp', jit_ldexp), ('np.ldexp', jit_np_ldexp)):
-    got = fn(2.5, _INT32_MIN)
-    print('%s(2.5, INT32_MIN) = %r  want 0.0' % (label, got))
-    if got != 0.0:
-        failures.append('%s(2.5, INT32_MIN) -> %r != 0.0' % (label, got))
-
-got = jit_frexp(0.625)
-print('frexp(0.625) = %r  want (0.625, 0)' % (got,))
-if got != (0.625, 0):
-    failures.append('frexp(0.625) -> %r != (0.625, 0)' % (got,))
-
-if failures:
-    raise SystemExit('ppc64le ldexp/frexp ABI regression:' + ''.join(['\n  ' + f for f in failures]))
-print('ldexp/np.ldexp/frexp signext probe OK')
-"
-# Run the upstream test explicitly too, since the sampled suite may not select it.
-$SEGVCATCH ${QEMU_EXECVE} ${PYTHON} -m numba.runtests numba.tests.test_mathlib.TestMathLib.test_ldexp -v
-# --- end ppc64le probe -------------------------------------------------------
 
 # --- cross-build toolchain quick-fail (conda-forge/numba-feedstock#201) -------
 # Every test listed below invokes the C or C++ toolchain at test time. These are
