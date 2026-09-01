@@ -1,10 +1,10 @@
 context:
-  build_number: 2
+  build_number: 3
   name: numba
-  version: 0.67.0rc1
+  version: "0.67.0rc1"
   sha256: 36d3f50cbb992a4c40a53f070eb04ae774d8be5c0c733994307f65e134112e3e
   fast_tests: "1"
-  ppc64le_on_aarch64: ${{ target_platform == "linux-ppc64le" and build_platform == "linux-aarch64" }}
+  built_on_aarch64: ${{ build_platform == "linux-aarch64" }}
 
 package:
   name: numba
@@ -14,43 +14,24 @@ source:
   url: https://pypi.org/packages/source/${{ name[0] }}/${{ name }}/${{ name }}-${{ version }}.tar.gz
   sha256: ${{ sha256 }}
   patches:
-    # Adds the `signext` attribute to numba_ldexp{,f}'s integer exponent
-    # argument. ELFv2 requires sub-doubleword integer arguments to be extended
-    # per their C type; an unannotated LLVM i32 is zero-extended, which corrupts
-    # negative exponents at the JIT -> C helper boundary on ppc64le. Applies on
-    # every platform since it only annotates an existing declaration.
-    # Adopted from main, replacing rc's earlier
-    # 0001-ppc64le-abi-workaround-ldexp-frexp.patch: same bug, refined fix, and
-    # unlike rc's it also covers the np.ldexp declaration site.
-    - patches/0001-ppc64le-ldexp-signext.patch
-    - patches/0002-configurable-random-test-seed.patch
-    # test_array_const_alignment expects the float32 array constant as its own
-    # `constant [24 x i8] ..., align 4` global; on ppc64le LLVM's GlobalMerge
-    # pass folds the module constants into a single @_MergedGlobals struct
-    # (align 16), so 0006 makes the check platform-aware -- assert the [24 x i8]
-    # array element is present and the alignment is sufficient (>= 4) -- rather
-    # than skipping -- see conda-forge/numba-feedstock#192.
-    # test_compile_nrt runs pycc AOT-compiled machine code that hits an illegal
-    # instruction under QEMU user-mode ppc64le emulation (uncaught target signal
-    # 4) -- a QEMU TCG emulation gap, not a numba defect; upstream already skips
-    # this test on aarch64, so 0007 extends that skip to ppc64le -- see
-    # conda-forge/numba-feedstock#192.
+    - patches/ppc64le-ldexp-signext.patch
+    - patches/configurable-random-test-seed.patch
+    - patches/fix-test_linalg_lstsq-empty-array-nondeterminism.patch
     - if: ppc64le
       then:
-        - patches/0003-skip-test_unique-on-ppc64le.patch
-        - patches/0004-skip-test_workqueue_fork-on-ppc64le.patch
-        - patches/0005-fix-test_inlining_global_dispatcher-bb-count-on-ppc64le.patch
-        - patches/0006-fix-test_array_const_alignment-globalmerge-on-ppc64le.patch
-        - patches/0007-skip-test_compile_nrt-on-ppc64le.patch
+        - patches/skip-test_unique-on-ppc64le.patch
+        - patches/fix-test_inlining_global_dispatcher-bb-count-on-ppc64le.patch
+        - patches/fix-test_array_const_alignment-globalmerge-on-ppc64le.patch
+        - patches/skip-test_compile_nrt-on-ppc64le.patch
 
 build:
   number: ${{ build_number }}
   skip: match(python, "<3.10")
   script:
     - if: linux
-      then: export CC="${CC} -pthread"
-    - if: linux
-      then: export CXX="${CXX} -pthread"
+      then:
+        - export CC="${CC} -pthread"
+        - export CXX="${CXX} -pthread"
     - ${{ PYTHON }} -m pip install . --no-deps --ignore-installed -vvv
   python:
     entry_points:
@@ -58,30 +39,31 @@ build:
 
 requirements:
   build:
-    - ${{ stdlib('c') }}
-    - ${{ compiler('c') }}
-    - ${{ compiler('cxx') }}
     - if: build_platform != target_platform
       then:
         - python
         - cross-python_${{ target_platform }}
-        - numpy >=1.24,<2.5
+        - numpy >=2.0,<2.6
+    - ${{ stdlib('c') }}
+    - ${{ compiler('c') }}
+    - ${{ compiler('cxx') }}
     # llvm is needed for the headers
     - if: osx
       then: llvm-openmp
     - if: linux
       then: libgomp
   host:
+    - python
     - pip
-    - python
-    - llvmlite 0.49.*
-    - numpy >=1.24,<2.5
     - setuptools
-    - tbb-devel
+    - llvmlite 0.49.*
+    - numpy >=2.0,<2.6
+    - tbb-devel 2021.6.0.*
   run:
-    - ${{ pin_compatible('llvmlite', upper_bound='x.x') }}
     - python
-    - numpy >=1.22.3,<2.5
+    - ${{ pin_compatible('llvmlite', upper_bound='x.x') }}
+    # NumPy has lower and upper limits
+    - numpy >=1.22.3,<2.6
   ignore_run_exports:
     by_name:
       - tbb
@@ -97,7 +79,7 @@ requirements:
     - cuda-python >=11.6
 
 tests:
-  - if: not ppc64le_on_aarch64
+  - if: not built_on_aarch64
     then:
       - python:
           imports:
@@ -129,7 +111,7 @@ tests:
 
   - script:
       content:
-        - if: not ppc64le_on_aarch64
+        - if: not built_on_aarch64
           then:
             - numba -h
             - numba -s
@@ -147,6 +129,10 @@ tests:
         build_platform: ${{ build_platform }}
         target_platform: ${{ target_platform }}
         flow_run_id: ${{ env.get("flow_run_id", default="0") }}
+        NUMBA_CF_TRIAGE: ${{ env.get("NUMBA_CF_TRIAGE", default="0") }}
+        NUMBA_CF_RUN_SKIPPED: ${{ env.get("NUMBA_CF_RUN_SKIPPED", default="0") }}
+        NUMBA_CF_DIAG: ${{ env.get("NUMBA_CF_DIAG", default="0") }}
+        NUMBA_CF_REPRO: ${{ env.get("NUMBA_CF_REPRO", default="0") }}
         python_version: ${{ python }}
     files:
       recipe:
@@ -162,7 +148,7 @@ tests:
             # at test time too -- see conda-forge/numba-feedstock#201.
             - ${{ compiler('cxx') }}
             - bash >=5.2
-            - qemu-execve-ppc64le
+            - qemu-execve-${{ target_platform | replace("linux-64", "x86_64") | replace("linux-", "") }} [version=">=11", build_number=">=7"]
       run:
         - ${{ compiler('c') }}
         - ${{ compiler('cxx') }}
@@ -200,4 +186,3 @@ extra:
     - step21
     - esc
     - MementoRC
-    

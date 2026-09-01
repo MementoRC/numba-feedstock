@@ -22,18 +22,6 @@ jobs:
       max-parallel: 50
       matrix:
         include:
-          - CONFIG: linux_64_python3.10.____cpython
-            DOCKER_IMAGE: quay.io/condaforge/linux-anvil-x86_64:alma10
-            STORE_BUILD_ARTIFACTS: False
-            UPLOAD_PACKAGES: True
-            build_workspace_dir: build_artifacts
-            docker_run_args: 
-            free_disk_space: skip
-            os: ubuntu
-            pagefile_size: 0
-            resize_partitions: False
-            runs_on: ['ubuntu-latest']
-            tools_install_dir: ~/miniforge3
           - CONFIG: linux_64_python3.11.____cpython
             DOCKER_IMAGE: quay.io/condaforge/linux-anvil-x86_64:alma10
             STORE_BUILD_ARTIFACTS: False
@@ -94,18 +82,6 @@ jobs:
             resize_partitions: False
             runs_on: ['ubuntu-latest']
             tools_install_dir: ~/miniforge3
-          - CONFIG: linux_aarch64_python3.10.____cpython
-            DOCKER_IMAGE: quay.io/condaforge/linux-anvil-aarch64:alma10
-            STORE_BUILD_ARTIFACTS: False
-            UPLOAD_PACKAGES: True
-            build_workspace_dir: build_artifacts
-            docker_run_args: 
-            free_disk_space: skip
-            os: ubuntu
-            pagefile_size: 0
-            resize_partitions: False
-            runs_on: ['ubuntu-24.04-arm']
-            tools_install_dir: ~/miniforge3
           - CONFIG: linux_aarch64_python3.11.____cpython
             DOCKER_IMAGE: quay.io/condaforge/linux-anvil-aarch64:alma10
             STORE_BUILD_ARTIFACTS: False
@@ -155,18 +131,6 @@ jobs:
             runs_on: ['ubuntu-24.04-arm']
             tools_install_dir: ~/miniforge3
           - CONFIG: linux_aarch64_python3.14.____cp314t
-            DOCKER_IMAGE: quay.io/condaforge/linux-anvil-aarch64:alma10
-            STORE_BUILD_ARTIFACTS: False
-            UPLOAD_PACKAGES: True
-            build_workspace_dir: build_artifacts
-            docker_run_args: 
-            free_disk_space: skip
-            os: ubuntu
-            pagefile_size: 0
-            resize_partitions: False
-            runs_on: ['ubuntu-24.04-arm']
-            tools_install_dir: ~/miniforge3
-          - CONFIG: linux_ppc64le_python3.10.____cpython
             DOCKER_IMAGE: quay.io/condaforge/linux-anvil-aarch64:alma10
             STORE_BUILD_ARTIFACTS: False
             UPLOAD_PACKAGES: True
@@ -238,18 +202,6 @@ jobs:
             resize_partitions: False
             runs_on: ['ubuntu-24.04-arm']
             tools_install_dir: ~/miniforge3
-          - CONFIG: win_64_python3.10.____cpython
-            STORE_BUILD_ARTIFACTS: False
-            UPLOAD_PACKAGES: True
-            build_platform: win-64
-            build_workspace_dir: C:/bld
-            docker_run_args: 
-            free_disk_space: skip
-            os: windows
-            pagefile_size: 0
-            resize_partitions: False
-            runs_on: ['windows-2022']
-            tools_install_dir: D:\Miniforge
           - CONFIG: win_64_python3.11.____cpython
             STORE_BUILD_ARTIFACTS: False
             UPLOAD_PACKAGES: True
@@ -318,8 +270,8 @@ jobs:
       if: matrix.os == 'ubuntu'
       shell: bash
       run: |
-        if [[ "$(uname -m)" == "x86_64" || "$(uname -m)" == "aarch64" ]]; then
-          docker run --rm --privileged tonistiigi/binfmt --install all
+        if [[ "$(uname -m)" == "x86_64" ]]; then
+          docker run --rm --privileged multiarch/qemu-user-static:register --reset --credential yes
         fi
 
     - name: Build on Linux
