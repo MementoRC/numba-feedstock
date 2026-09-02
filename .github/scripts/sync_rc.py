@@ -60,7 +60,7 @@ DEFAULT_RECIPE = "recipe/recipe.yaml"
 DEFAULT_THEIRS = "README.md,conda-forge.yml"
 DEFAULT_OURS = "recipe/conda_build_config.yaml"
 DEFAULT_REGENERATED = ".ci_support/*,.azure-pipelines/*,azure-pipelines.yml,.scripts/*,.github/workflows/conda-build.yml,pixi.toml,.gitattributes,.gitignore,LICENSE.txt,README.md"
-DEFAULT_PRESERVE = "source.patches"
+DEFAULT_PRESERVE = "source.patches,tests"
 
 CONFLICT_START = re.compile(r"^<{7}(?: |$)")
 CONFLICT_BASE = re.compile(r"^\|{7}(?: |$)")
@@ -84,6 +84,20 @@ def matches(path, patterns):
     """Exact match or fnmatch glob. fnmatch's `*` spans `/`, which is what we
     want for prefixes like `.ci_support/*`."""
     return any(path == p or fnmatch.fnmatch(path, p) for p in patterns)
+
+
+_PATCH_SEQ = re.compile(r"^\d+-")
+
+
+def _canonical(path):
+    """Path with any leading NNNN- sequence prefix stripped from the basename.
+
+    rc renames its patches from `0001-foo.patch` to `foo.patch` while main
+    still carries the sequenced name. Comparing canonical forms catches that
+    pair even when git's similarity scoring does not.
+    """
+    head, sep, name = path.rpartition("/")
+    return f"{head}{sep}{_PATCH_SEQ.sub('', name)}"
 
 
 def _find_block(lines, dotted):
@@ -396,14 +410,55 @@ def cmd_residual(args):
     take_ours = [p.strip() for p in args.ours.split(",") if p.strip()]
     regenerated = [p.strip() for p in args.regenerated.split(",") if p.strip()]
 
-    out = git("diff", "--name-only", args.base, args.head)
+    # -M/-C so a file rc RENAMED reads as one rename rather than an unrelated
+    # delete plus add. Without it main's pre-rename path looks like "a main
+    # file rc is missing", and the residual PR proposes restoring it next to
+    # rc's replacement -- resurrecting a path rc deliberately retired.
+    out = git("diff", "--name-status", "-M", "-C", args.base, args.head)
+    candidates, renamed, rename_src = [], [], {}
+    for line in out.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        if parts[0][:1] in ("R", "C") and len(parts) >= 3:
+            # parts[1] is rc's path, parts[2] is main's. Record the pairing but
+            # still let the path through classification below: git's similarity
+            # scoring false-pairs unrelated files (the .ci_support version
+            # matrix, concretely), and excluding here would drop them from the
+            # residual set ahead of the theirs/ours/regenerated filters that
+            # actually own them.
+            rename_src[parts[2]] = parts[1]
+            candidates.append(parts[2])
+            continue
+        if len(parts) >= 2:
+            candidates.append(parts[1])
+
+    # Similarity scoring is a heuristic and misses a rename that also rewrote
+    # much of the file, so fall back to the naming convention rc actually uses.
+    base_canon = {}
+    for path in git("ls-tree", "-r", "--name-only", args.base).splitlines():
+        if path.strip():
+            base_canon.setdefault(_canonical(path), path)
+
     files = []
-    for path in out.splitlines():
+    for path in candidates:
         if not path.strip():
             continue
         if path == recipe_path:
             continue
         if matches(path, take_theirs) or matches(path, take_ours) or matches(path, regenerated):
+            continue
+        src = rename_src.get(path)
+        if src is not None:
+            # git paired this with a path rc still holds, so rc already has the
+            # content under its own name; offering main's would be a revert.
+            renamed.append((path, src))
+            continue
+        twin = base_canon.get(_canonical(path))
+        if twin is not None and twin != path:
+            # rc carries this file under a different name; proposing main's
+            # copy would restore a path rc retired, alongside its successor.
+            renamed.append((path, twin))
             continue
         # `git diff --name-only` is symmetric, so it also reports paths that
         # exist only on rc (base) and were never on main (head) -- rc's own
@@ -423,8 +478,15 @@ def cmd_residual(args):
 
     for path in files:
         print(path)
+    for main_path, rc_path in renamed:
+        print(f"skipped (rc renamed): {main_path} -> {rc_path}", file=sys.stderr)
 
-    _emit({"files": " ".join(files), "count": str(len(files))})
+    _emit({
+        "files": " ".join(files),
+        "count": str(len(files)),
+        "renamed": " ".join(f"{m}->{r}" for m, r in renamed),
+        "renamed_count": str(len(renamed)),
+    })
     return 0
 
 
