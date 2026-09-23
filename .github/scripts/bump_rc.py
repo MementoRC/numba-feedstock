@@ -163,6 +163,12 @@ def main():
         print("error: failed to patch version in context: block", file=sys.stderr)
         return 1
 
+    reset_build = patch_context_scalar(lines, "build_number", "0")
+    if reset_build:
+        print("reset build_number to 0 (version changed)")
+    else:
+        print("warning: no build_number key in context: block to reset", file=sys.stderr)
+
     patched_ctx = patch_context_scalar(lines, "sha256", sha256)
     patched_inline = patch_inline_sha256(
         lines, ["pypi.org/packages/source", ".tar.gz"], sha256
@@ -180,6 +186,7 @@ def main():
             "new_version": new_version,
             "sha256": sha256,
             "tarball_url": tarball_url,
+            "build_number_reset": "true" if reset_build else "false",
         }
     )
     return 0
