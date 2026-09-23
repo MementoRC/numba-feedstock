@@ -166,8 +166,11 @@ jobs:
         if: steps.mode.outputs.mode == 'pr1'
         working-directory: rc
         run: |
+          # tests: is preserved because rc's test apparatus (qemu emulation
+          # and FAST_TESTS) lives there; recipe.yaml is otherwise force-resolved to main's side.
           python3 "${GITHUB_WORKSPACE}/scaffold/.github/scripts/sync_rc.py" capture \
             --recipe recipe/recipe.yaml \
+            --preserve "source.patches,tests" \
             --out "${RUNNER_TEMP}/rc-identity.json"
 
       - name: Merge upstream/main
@@ -188,6 +191,7 @@ jobs:
             --recipe recipe/recipe.yaml \
             --identity "${RUNNER_TEMP}/rc-identity.json" \
             --package "$PACKAGE" \
+            --theirs "README.md" \
             --ours ""
 
       # Generated files were resolved whole-file to upstream above; the rerender
@@ -293,6 +297,7 @@ jobs:
         working-directory: rc
         run: |
           python3 "${GITHUB_WORKSPACE}/scaffold/.github/scripts/sync_rc.py" residual \
+            --theirs "README.md" \
             --ours "" \
             --base upstream/rc --head upstream/main
 
