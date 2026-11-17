@@ -23,6 +23,11 @@ source:
         - patches/skip-test_compile_nrt-on-ppc64le.patch
         - patches/skip-test_reproducible_build_recursive_type-on-ppc64le.patch
         - patches/label-known-flaky-timeouts.patch
+    - if: riscv64
+      then:
+        - patches/disable-jump-tables-on-riscv64.patch
+        - patches/riscv64-baseline-target-features.patch
+        - patches/fix-cmath-nan-sign-on-riscv64.patch
 
 build:
   number: ${{ build_number }}
@@ -81,7 +86,7 @@ requirements:
     - cuda-python >=11.6
 
 tests:
-  - if: build_platform != "linux-aarch64"
+  - if: build_platform != "linux-aarch64" and not riscv64
     then:
       - python:
           imports:
@@ -113,7 +118,7 @@ tests:
 
   - script:
       content:
-        - if: build_platform != "linux-aarch64"
+        - if: build_platform != "linux-aarch64" and not riscv64
           then:
             - numba -h
             - numba -s
