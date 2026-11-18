@@ -1,5 +1,5 @@
 context:
-  build_number: 0
+  build_number: 1
   name: numba
   version: "0.68.1rc2"
   sha256: 6f6b3c8d7dc0e718ec2c5bbe825d65cac9d4a3f41b6a2a1017f84d098d06f2b3
@@ -23,6 +23,11 @@ source:
         - patches/skip-test_compile_nrt-on-ppc64le.patch
         - patches/skip-test_reproducible_build_recursive_type-on-ppc64le.patch
         - patches/label-known-flaky-timeouts.patch
+    - if: riscv64
+      then:
+        - patches/disable-jump-tables-on-riscv64.patch
+        - patches/riscv64-baseline-target-features.patch
+        - patches/fix-cmath-nan-sign-on-riscv64.patch
 
 build:
   number: ${{ build_number }}
@@ -58,7 +63,9 @@ requirements:
     - setuptools
     - llvmlite 0.50.*
     - numpy >=2.0,<2.6
-    - tbb-devel 2021.6.0.*
+    - if: target_platform == "linux-riscv64"
+      then: tbb-devel 2023.1.0.*
+      else: tbb-devel 2021.6.0.*
   run:
     - python
     - ${{ pin_compatible('llvmlite', upper_bound='x.x') }}
@@ -79,7 +86,7 @@ requirements:
     - cuda-python >=11.6
 
 tests:
-  - if: build_platform != "linux-aarch64"
+  - if: build_platform != "linux-aarch64" and not riscv64
     then:
       - python:
           imports:
@@ -111,7 +118,7 @@ tests:
 
   - script:
       content:
-        - if: build_platform != "linux-aarch64"
+        - if: build_platform != "linux-aarch64" and not riscv64
           then:
             - numba -h
             - numba -s
